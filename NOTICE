@@ -1,0 +1,11 @@
+Trợ lý CDN
+Copyright (c) 2026 Trợ lý CDN contributors — MIT License (xem LICENSE)
+
+Mã bên thứ ba có trong dự án:
+
+1. src/channels/zalo/protocol.ts — port và chỉnh sửa từ zalo-hermes
+   (https://github.com/congthuanmmm/zalo-hermes), sidecar/protocol.mjs
+   MIT License, Copyright (c) 2026 Cong Thuan MMM
+
+2. zca-js (https://github.com/RFS-ADRENO/zca-js) — thư viện Zalo Web không chính thức,
+   dùng làm phụ thuộc npm. MIT License.
