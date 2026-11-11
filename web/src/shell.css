@@ -46,7 +46,7 @@
 .nav-item[aria-current="page"] .nav-count { color: inherit; }
 .nav-section { display: flex; align-items: center; height: 32px; margin-top: 16px; padding: 0 12px; font-size: 12px; font-weight: 500; letter-spacing: 0.025em; text-transform: uppercase; color: var(--muted); }
 
-.sidebar-foot { border-top: 1px solid var(--border); padding: 12px; }
+.sidebar-foot { padding: 12px; }
 .user-row { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 12px; font-size: 14px; color: color-mix(in srgb, var(--foreground) 70%, transparent); }
 .user-row .user-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .icon-only {
@@ -291,3 +291,31 @@
 .version-new { padding: 0 6px; border-radius: 6px; background: var(--primary-light); color: var(--primary-ink); font-weight: 500; }
 
 .update-manual { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+
+/* ===== Báo lỗi, góp ý ===== */
+.fb { width: min(520px, 100%); padding: 0; gap: 0; background: var(--surface); border-radius: 12px; overflow: hidden; }
+.fb-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-bottom: 1px solid var(--border); }
+.fb-title { font-size: 16px; font-weight: 600; }
+.fb-body { display: flex; flex-direction: column; gap: 16px; padding: 16px; overflow-y: auto; }
+.fb-body > .grp-seg { align-self: flex-start; }
+.fb-field { display: grid; gap: 6px; font-size: 14px; }
+.fb-field textarea { resize: vertical; min-height: 96px; }
+.fb-attach { display: flex; flex-direction: column; gap: 8px; }
+.fb-tick { width: 100%; min-height: 0; justify-content: flex-start; align-items: flex-start; gap: 12px; padding: 8px; border: none; border-radius: 8px; background: transparent; text-align: left; white-space: normal; }
+.fb-tick:hover:not(:disabled) { background: var(--item-hover); }
+.fb-tick .grp-check { margin-top: 3px; }
+.fb-tick-text { display: grid; gap: 2px; min-width: 0; font-size: 14px; }
+.fb-tick-text .small { overflow-wrap: anywhere; }
+.fb-shot { display: block; width: calc(100% - 36px); max-height: 120px; margin-left: 36px; object-fit: cover; object-position: top left; border: 1px solid var(--border-strong); border-radius: 8px; }
+.fb-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px; border-top: 1px solid var(--border); }
+.fb-done { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 24px; text-align: center; }
+.fb-done-ic { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--success-bg); color: var(--success); }
+.fb-done-ic svg { width: 20px; height: 20px; }
+.fb-done .t { font-size: 14px; font-weight: 500; }
+.fb-done .primary { margin-top: 8px; }
+
+/* Màn đăng nhập: quên mật khẩu */
+.auth-forgot { justify-self: center; font-size: 13px; }
+.auth-help { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: var(--background); }
+.auth-help ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.auth-cmd { padding: 8px 10px; border-radius: 6px; background: var(--surface); font-size: 12px; overflow-x: auto; white-space: pre; }

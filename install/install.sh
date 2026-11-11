@@ -207,6 +207,15 @@ else
   note "Máy không có systemd; đã bật app tạm thời. Lần sau bật bằng: ${DIR}/chay.sh"
 fi
 
+# Quên mật khẩu đăng nhập web: đặt lại ngay trên máy (người cầm máy là chủ).
+cat >"${DIR}/dat-lai-mat-khau.sh" <<EOF
+#!/bin/bash
+# Đặt lại mật khẩu quản trị Trợ lý CDN. Thêm mật khẩu sau lệnh để tự chọn, bỏ trống để app tạo.
+export CDN_DATA_DIR="${DIR}/data"
+exec "${DIR}/node/bin/node" "${DIR}/launcher.mjs" --dat-lai-mat-khau "\$@"
+EOF
+chmod +x "${DIR}/dat-lai-mat-khau.sh"
+
 # Gỡ cài đặt
 cat >"${DIR}/go-cai-dat.sh" <<EOF
 #!/bin/bash
@@ -219,7 +228,7 @@ rm -f "${HOME}/.config/systemd/user/tro-ly-cdn.service"
 pkill -f "${DIR}/launcher.mjs" 2>/dev/null || true
 pkill -f "${DIR}/versions/" 2>/dev/null || true
 if [ "\${1:-}" = "--xoa-du-lieu" ]; then rm -rf "${DIR}"; echo "Đã gỡ và xoá dữ liệu."; else
-  rm -rf "${DIR}/node" "${DIR}/versions" "${DIR}/launcher.mjs" "${DIR}/current.json" "${DIR}/chay.sh"
+  rm -rf "${DIR}/node" "${DIR}/versions" "${DIR}/launcher.mjs" "${DIR}/current.json" "${DIR}/chay.sh" "${DIR}/dat-lai-mat-khau.sh"
   echo "Đã gỡ. Dữ liệu vẫn giữ ở: ${DIR}/data"
 fi
 EOF
@@ -249,6 +258,6 @@ if [ -z "${CDN_NO_OPEN:-}" ]; then
 fi
 
 printf '\n\033[1;32mXong!\033[0m Mở trình duyệt vào \033[1mhttp://localhost:%s\033[0m để thiết lập.\n' "${PORT}"
-printf '  Nơi cài: %s\n  Dữ liệu: %s/data\n  Gỡ cài đặt: bash "%s/go-cai-dat.sh"\n\n' "${DIR}" "${DIR}" "${DIR}"
+printf '  Nơi cài: %s\n  Dữ liệu: %s/data\n  Quên mật khẩu: bash "%s/dat-lai-mat-khau.sh"\n  Gỡ cài đặt: bash "%s/go-cai-dat.sh"\n\n' "${DIR}" "${DIR}" "${DIR}" "${DIR}"
 [ "${PLAT}" = linux ] && printf '  Chạy trên VPS: app chỉ nghe trên máy này (127.0.0.1). Muốn mở ra ngoài, đặt sau HTTPS (Caddy/Nginx).\n\n'
 exit 0

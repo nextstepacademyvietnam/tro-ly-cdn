@@ -8,6 +8,7 @@
     "url": "git+https://github.com/nextstepacademyvietnam/tro-ly-cdn.git"
   },
   "homepage": "https://github.com/nextstepacademyvietnam/tro-ly-cdn#readme",
+  "feedbackUrl": "https://script.google.com/macros/s/AKfycbzmpd2e3iSA-BFmdLcRVLjiC5_iOvEIxaLIpkjCLKILRYkeJ4SqsrkoE-3Ol_SkbYyoFg/exec",
   "type": "module",
   "engines": {
     "node": ">=22.13"
@@ -20,7 +21,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "test": "vitest run",
     "start:direct": "node dist/server/index.js",
-    "release": "tsx scripts/release.ts"
+    "release": "tsx scripts/release.ts",
+    "reset-password": "tsx src/server/reset-password.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.322",
@@ -39,6 +41,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^1.71.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

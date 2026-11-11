@@ -20,6 +20,9 @@ import { Replier } from "../core/replier.js";
 import { checkLayerReminders } from "../core/layerReminder.js";
 import { type ScheduleDeps, registerScheduleRoutes } from "./routes/schedules.js";
 import type { Updater } from "./updates.js";
+import { GroupTracker } from "../groups/tracker.js";
+import { registerGroupRoutes } from "./routes/groups.js";
+import { registerFeedbackRoutes } from "./routes/feedback.js";
 import {
   type EngineConfig,
   type EngineKind,
@@ -49,6 +52,10 @@ export interface AppDeps {
   updater?: Updater;
   /** Số bản hiện trong /api/status. */
   version?: string;
+  /** Nơi nhận báo lỗi (Apps Script của Google Sheet). Không có thì nút báo lỗi báo "chưa đặt". */
+  feedbackUrl?: string | null;
+  /** Cho test thay fetch khi gửi báo lỗi. */
+  feedbackFetch?: typeof fetch;
 }
 
 declare module "fastify" {
@@ -103,6 +110,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     hasAdmin: auth.hasAdmin(),
     user: req.user ? { username: req.user.username } : null,
     version: deps.version ?? "",
+    // Để màn đăng nhập chỉ đúng cách đặt lại mật khẩu cho máy này.
+    platform: process.platform,
+    installKind: deps.updater?.status().installKind ?? "folder",
   }));
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/setup", async (req, reply) => {
@@ -195,6 +205,30 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerProfileRoutes(app, profiles, accounts, engineOrNull);
   registerScheduleRoutes(app, schedules);
   registerAssistantRoutes(app, accounts, assistant, replier);
+
+  // ---------- Nhóm Zalo: theo dõi vào/rời, luồng chào mừng ----------
+  const groups = new GroupTracker(deps.db, {
+    channel: (id) => accounts.groupChannel(id),
+    accountIds: () => accounts.list().map((a) => a.id),
+    isPaused: (id) => assistant.isPaused(id),
+    mediaPath: (id) => {
+      const m = schedules.store.media(id);
+      return m ? schedules.store.mediaPath(m) : null;
+    },
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  accounts.onGroupChange = (id, change) => void groups.onChange(id, change).catch((err) => app.log.error({ err }, "Lỗi ghi sự kiện nhóm"));
+  // Vừa kết nối: đối chiếu để bắt người vào/rời lúc app tắt (chờ chút cho kết nối ổn định).
+  accounts.onConnected = (id) => void setTimeout(() => void groups.reconcile(id).catch(() => undefined), 10_000).unref();
+  if (deps.dataDir) groups.start();
+  app.addHook("onClose", async () => groups.stop());
+  registerGroupRoutes(app, groups);
+  registerFeedbackRoutes(app, {
+    url: deps.feedbackUrl ?? null,
+    version: deps.version ?? "",
+    installKind: deps.updater?.status().installKind ?? "folder",
+    fetch: deps.feedbackFetch,
+  });
 
   // ---------- Cập nhật ----------
   const updater = deps.updater;

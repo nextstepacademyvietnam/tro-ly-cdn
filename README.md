@@ -70,7 +70,18 @@ Danh sách thay đổi của từng bản nằm ở [CHANGELOG.md](CHANGELOG.md)
 
 ### App gửi gì ra ngoài
 
-Ngoài Zalo và mô hình AI bạn chọn, app chỉ gọi `api.github.com` để hỏi số bản mới nhất, và tải gói cài khi bạn bấm cập nhật. Không gửi dữ liệu, tin nhắn hay thông tin máy của bạn đi đâu. Bản fork tự hỏi repo ghi trong `repository` của `package.json`.
+Ngoài Zalo và mô hình AI bạn chọn, app chỉ gọi `api.github.com` để hỏi số bản mới nhất, và tải gói cài khi bạn bấm cập nhật. Không tự gửi dữ liệu, tin nhắn hay thông tin máy của bạn đi đâu.
+
+Khi bạn bấm biểu tượng **con bọ** (Báo lỗi, góp ý) và bấm Gửi, app gửi nội dung bạn viết tới nơi nhận của người giữ repo (trường `feedbackUrl` trong `package.json`), kèm ảnh chụp màn hình, thông tin máy, số liên hệ **chỉ khi bạn để tích**. Người giữ repo dựng nơi nhận theo [docs/gop-y-google-sheet.md](docs/gop-y-google-sheet.md).
+
+### Quên mật khẩu
+
+Mật khẩu chỉ đặt lại được trên chính máy chạy app (dữ liệu giữ nguyên, mọi phiên cũ bị đăng xuất):
+
+- Windows (cài bằng bộ cài): menu Start → **Đặt lại mật khẩu Trợ lý CDN**.
+- macOS: `bash ~/Library/Application Support/TroLyCDN/dat-lai-mat-khau.sh`
+- Linux / VPS: `bash ~/.tro-ly-cdn/dat-lai-mat-khau.sh`
+- Chạy từ mã nguồn: `npm run reset-password` (thêm mật khẩu sau lệnh nếu muốn tự chọn). Bản fork tự hỏi repo ghi trong `repository` của `package.json`.
 
 ## Phát triển
 

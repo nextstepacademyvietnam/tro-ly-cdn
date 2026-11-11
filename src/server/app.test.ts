@@ -19,7 +19,7 @@ const cookieOf = (res: { headers: Record<string, unknown> }) =>
 describe("tài khoản quản trị", () => {
   it("lần đầu cho tạo admin, sau đó không cho tạo thêm", async () => {
     const app = await newApp();
-    expect((await app.inject({ url: "/api/status" })).json()).toEqual({ hasAdmin: false, user: null, version: "" });
+    expect((await app.inject({ url: "/api/status" })).json()).toMatchObject({ hasAdmin: false, user: null, version: "" });
 
     const setup = await app.inject({ method: "POST", url: "/api/setup", payload: { username: "chu", password: "matkhau123" } });
     expect(setup.statusCode).toBe(200);
