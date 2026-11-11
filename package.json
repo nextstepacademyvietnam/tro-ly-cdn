@@ -1,6 +1,6 @@
 {
   "name": "tro-ly-cdn",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Trợ lý AI mã nguồn mở chạy 24/7 trên máy bạn hoặc VPS — bắt đầu với trợ lý Zalo cá nhân",
   "license": "MIT",
   "repository": {

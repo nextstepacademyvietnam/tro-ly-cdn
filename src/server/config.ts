@@ -31,3 +31,9 @@ export const INSTALL_KIND: "launcher" | "git" | "folder" = INSTALL_DIR ? "launch
 export function ensureDataDir(): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
+
+/**
+ * Mục MKT chỉ dành cho máy của NSG, bản phát hành cho khách để tắt.
+ * Bật bằng CDN_MKT=1, hoặc file rỗng "bat-mkt" trong thư mục dữ liệu (còn nguyên qua các lần cập nhật).
+ */
+export const MKT_ENABLED = process.env.CDN_MKT === "1" || (process.env.CDN_MKT !== "0" && fs.existsSync(path.join(DATA_DIR, "bat-mkt")));

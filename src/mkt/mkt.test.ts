@@ -131,9 +131,19 @@ describe("MktRunner + tổng hợp", () => {
 });
 
 describe("route MKT", () => {
+  it("tắt sẵn: không có route MKT, /api/status báo tắt, callback cũng phải đăng nhập", async () => {
+    const app = await buildApp({ db: openDb(":memory:"), box: new SecretBox(crypto.randomBytes(32)) });
+    expect((await app.inject({ url: "/api/status" })).json().features).toEqual({ mkt: false });
+    expect((await app.inject({ url: "/api/mkt/oauth/facebook/callback?code=x&state=y" })).statusCode).toBe(401);
+    const setup = await app.inject({ method: "POST", url: "/api/setup", payload: { username: "quantri", password: "matkhau123" } });
+    const cookie = String(setup.headers["set-cookie"]).split(";")[0]!;
+    expect((await app.inject({ url: "/api/mkt/connections", headers: { cookie } })).statusCode).toBe(404);
+    await app.close();
+  });
+
   it("callback Facebook không cần cookie nhưng phải có state hợp lệ; token dán tay nhiều trang thì chờ chọn", async () => {
     const { f } = fakeGraph();
-    const app = await buildApp({ db: openDb(":memory:"), box: new SecretBox(crypto.randomBytes(32)), mktFetch: f });
+    const app = await buildApp({ db: openDb(":memory:"), box: new SecretBox(crypto.randomBytes(32)), mktFetch: f, mkt: true });
     const cb = await app.inject({ url: "/api/mkt/oauth/facebook/callback?code=x&state=gia" });
     expect(cb.statusCode).toBe(302);
     expect(cb.headers.location).toContain("fb=loi");

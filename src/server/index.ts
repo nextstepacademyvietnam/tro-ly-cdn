@@ -1,5 +1,5 @@
 import { buildApp } from "./app.js";
-import { APP_VERSION, DATA_DIR, FEEDBACK_URL, HOST, INSTALL_DIR, INSTALL_KIND, PACKAGE_INFO, PORT, WEB_DIR } from "./config.js";
+import { APP_VERSION, DATA_DIR, FEEDBACK_URL, HOST, INSTALL_DIR, INSTALL_KIND, MKT_ENABLED, PACKAGE_INFO, PORT, WEB_DIR } from "./config.js";
 import { RESTART_EXIT_CODE, Updater, repoFromPackage } from "./updates.js";
 import { AssistantStore } from "../core/assistantStore.js";
 import { openDb } from "./db.js";
@@ -52,6 +52,7 @@ const app = await buildApp({
   version: APP_VERSION,
   feedbackUrl: FEEDBACK_URL,
   secureCookies: process.env.SECURE_COOKIES === "1",
+  mkt: MKT_ENABLED,
 });
 log = (msg, extra) => app.log.info(extra ?? {}, msg);
 

@@ -40,7 +40,7 @@ import { ChannelsPage } from "./pages/mkt/ChannelsPage";
 import { ConnectionsPage } from "./pages/mkt/ConnectionsPage";
 import "./mkt.css";
 
-type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string };
+type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string; features?: { mkt?: boolean } };
 export type Page = "can" | "hop" | "schedules" | "groups" | "profiles" | "accounts" | "models" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
 const MKT_PAGES: Page[] = ["mkt", "mkt-kenh", "mkt-ketnoi"];
 type Theme = "system" | "light" | "dark";
@@ -115,8 +115,9 @@ export function App() {
     });
   }, []);
   // Số kết nối MKT đang lỗi, hiện cạnh mục Kết nối.
+  const mktOn = !!status?.features?.mkt;
   useEffect(() => {
-    if (!status?.user) return;
+    if (!status?.user || !mktOn) return;
     const load = () =>
       api<{ connections: { status: string }[] }>("/api/mkt/connections")
         .then((r) => setMktErrors(r.connections.filter((c) => c.status === "error").length))
@@ -124,7 +125,11 @@ export function App() {
     load();
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
-  }, [status?.user, page]);
+  }, [status?.user, mktOn, page]);
+  // Mục MKT tắt (bản cho khách) mà trang lưu lại là trang MKT: về Cần xử lý.
+  useEffect(() => {
+    if (status?.user && !mktOn && MKT_PAGES.includes(page)) setPage("can");
+  }, [status?.user, mktOn, page]);
   useEffect(() => {
     if (!status?.user) return;
     loadAccounts().catch(() => undefined);
@@ -243,10 +248,14 @@ export function App() {
           {nav("groups", UsersRound, current?.trackedGroups)}
           {nav("profiles", Sparkles)}
           {nav("accounts", Smartphone)}
-          <div className="nav-section">MKT</div>
-          {nav("mkt", LayoutDashboard)}
-          {nav("mkt-kenh", ChartLine)}
-          {nav("mkt-ketnoi", Plug, mktErrors ? `${mktErrors} lỗi` : undefined)}
+          {mktOn && (
+            <>
+              <div className="nav-section">MKT</div>
+              {nav("mkt", LayoutDashboard)}
+              {nav("mkt-kenh", ChartLine)}
+              {nav("mkt-ketnoi", Plug, mktErrors ? `${mktErrors} lỗi` : undefined)}
+            </>
+          )}
           <div className="nav-section">Cài đặt</div>
           {nav("models", Cpu)}
         </nav>

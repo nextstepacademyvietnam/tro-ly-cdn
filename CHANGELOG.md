@@ -10,16 +10,12 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 ## [Chưa phát hành]
 
 ### Mới
-- Mục **MKT** mới: Tổng quan số marketing theo kỳ (hôm qua, 7 ngày, 30 ngày, tháng này) so với kỳ trước, thẻ từng kênh, màn Kênh có bảng từng ngày, top bài và xuất CSV.
-- Nối **Fanpage Facebook**: đăng nhập bằng app Meta của chính bạn (có hướng dẫn từng bước) hoặc dán token có sẵn. App tự lấy lượt xem, tương tác, bình luận, bài đăng, người theo dõi mỗi sáng 06:00; lần nối đầu lấy lùi 120 ngày.
-- Nối **kênh YouTube**: tải file JSON client của Google Cloud rồi đăng nhập Google của chủ kênh. App lấy lượt xem, bình luận, lượt thích, phút xem, đăng ký mới, video đăng (chỉ video công khai) mỗi sáng; YouTube trễ khoảng 3 ngày nên ngày chưa có số để trống.
-- Nối **Pancake CRM**: nhập API key và Shop ID. App đếm lead theo nguồn (content organic, lead magnet, cộng đồng Giá Tốt, workshop, đối tác, sale, học viên cũ, khác), tổng lead khử trùng theo số điện thoại trên cả bảng lead và bảng workshop, lead là founder. Luật nguồn lead sửa được trên màn Kết nối. App chỉ lưu số đếm, không lưu tên hay số điện thoại.
-- Ô dán token Facebook tự bỏ phần chép thừa (tên biến, dấu ngoặc).
-- Menu chia ba nhóm **Zalo / MKT / Cài đặt**; ô chuyển tài khoản Zalo nằm trong nhóm Zalo.
+- Menu chia nhóm **Zalo / Cài đặt**; ô chuyển tài khoản Zalo nằm ngay trong nhóm Zalo.
 
-### Lưu ý
-- Bình luận Facebook chỉ đếm bình luận của khách, bỏ mọi câu trả lời của trang (cả câu trang tự gõ), nên thấp hơn số bộ script đo lường cũ ghi vào Sheet.
-- TikTok, quảng cáo Meta và đổ số vào Google Sheet sẽ có trong các bản tới.
+## [0.2.1] - 2026-11-11
+
+### Sửa
+- Bộ cài Windows không còn dừng ở bước 4 với lỗi "Unable to save shortcut" trên máy có thư mục tiếng Việt (VD: Màn hình nền OneDrive tên "Máy tính"). Ai đã gặp lỗi này: bấm đúp lại file cài đặt, dữ liệu giữ nguyên.
 
 ## [0.2.0] - 2026-11-11
 
