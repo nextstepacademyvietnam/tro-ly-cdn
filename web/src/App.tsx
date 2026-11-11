@@ -26,8 +26,9 @@ import { ModelsPage } from "./pages/ModelsPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { SchedulesPage } from "./schedules/SchedulePanels";
 import { Popover, initials, timeAndDay } from "./ui";
+import { UpdateBanner, UpdateDialog, useUpdate } from "./update/UpdateDialog";
 
-type Status = { hasAdmin: boolean; user: { username: string } | null };
+type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string };
 export type Page = "can" | "hop" | "schedules" | "profiles" | "accounts" | "models";
 type Theme = "system" | "light" | "dark";
 
@@ -70,6 +71,8 @@ export function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountId, setAccountId] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const update = useUpdate();
+  const [updateOpen, setUpdateOpen] = useState(false);
 
   const refresh = () => api<Status>("/api/status").then(setStatus);
   useEffect(() => {
@@ -222,6 +225,10 @@ export function App() {
               <LogOut aria-hidden />
             </button>
           </div>
+          <button type="button" className="version-btn" onClick={() => setUpdateOpen(true)} title="Phiên bản và cập nhật">
+            v{update.status?.current ?? status.version ?? ""}
+            {update.status?.latest && <span className="version-new">Có bản mới</span>}
+          </button>
         </div>
       </aside>
 
@@ -236,6 +243,10 @@ export function App() {
             <Bell account={current} onRead={loadAccounts} />
           </div>
         </header>
+        <UpdateBanner status={update.status} onOpen={() => setUpdateOpen(true)} onChanged={() => void update.load()} />
+        {updateOpen && update.status && (
+          <UpdateDialog status={update.status} restarting={update.restarting} onClose={() => setUpdateOpen(false)} onStatus={update.setStatus} />
+        )}
         {accountId && (
           <main key={`${page === "can" || page === "hop" ? "inbox" : page}-${accountId}`} className="main-body">
             {(page === "can" || page === "hop") && (

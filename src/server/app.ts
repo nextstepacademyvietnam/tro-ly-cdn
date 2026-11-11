@@ -19,6 +19,7 @@ import { AssistantStore } from "../core/assistantStore.js";
 import { Replier } from "../core/replier.js";
 import { checkLayerReminders } from "../core/layerReminder.js";
 import { type ScheduleDeps, registerScheduleRoutes } from "./routes/schedules.js";
+import type { Updater } from "./updates.js";
 import {
   type EngineConfig,
   type EngineKind,
@@ -44,6 +45,10 @@ export interface AppDeps {
   schedules?: ScheduleDeps;
   /** Gom tin trước khi AI trả lời (ms). Test đặt 0. */
   replyBatchMs?: number;
+  /** Bộ kiểm tra / cài bản mới. Không có thì các route cập nhật báo "không hỗ trợ". */
+  updater?: Updater;
+  /** Số bản hiện trong /api/status. */
+  version?: string;
 }
 
 declare module "fastify" {
@@ -97,6 +102,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get("/api/status", async (req) => ({
     hasAdmin: auth.hasAdmin(),
     user: req.user ? { username: req.user.username } : null,
+    version: deps.version ?? "",
   }));
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/setup", async (req, reply) => {
@@ -189,6 +195,37 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerProfileRoutes(app, profiles, accounts, engineOrNull);
   registerScheduleRoutes(app, schedules);
   registerAssistantRoutes(app, accounts, assistant, replier);
+
+  // ---------- Cập nhật ----------
+  const updater = deps.updater;
+  app.get("/api/update", async () =>
+    updater
+      ? updater.status()
+      : { current: deps.version ?? "", latest: null, notes: "", url: "", publishedAt: "", important: false, canSelfUpdate: false, checkedAt: 0, checkEnabled: false, state: "idle", error: "", lastResult: null },
+  );
+  app.post("/api/update/check", async (_req, reply) => {
+    if (!updater) return reply.code(400).send({ error: "Bản này không kiểm tra cập nhật" });
+    try {
+      await updater.check();
+    } catch (err) {
+      return reply.code(502).send({ error: `Không hỏi được GitHub: ${(err as Error).message}` });
+    }
+    return updater.status();
+  });
+  app.post("/api/update/apply", async (_req, reply) => {
+    if (!updater) return reply.code(400).send({ error: "Bản này không tự cập nhật" });
+    try {
+      updater.apply();
+    } catch (err) {
+      return reply.code(409).send({ error: (err as Error).message });
+    }
+    return updater.status();
+  });
+  app.post("/api/update/dismiss-result", async () => {
+    updater?.dismissResult();
+    return { ok: true };
+  });
+  app.addHook("onClose", async () => updater?.stop());
 
   // ---------- Giao diện web ----------
   if (deps.webDir && fs.existsSync(deps.webDir)) {

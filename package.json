@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Trợ lý AI mã nguồn mở chạy 24/7 trên máy bạn hoặc VPS — bắt đầu với trợ lý Zalo cá nhân",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nextstepacademyvietnam/tro-ly-cdn.git"
+  },
+  "homepage": "https://github.com/nextstepacademyvietnam/tro-ly-cdn#readme",
   "type": "module",
   "engines": {
     "node": ">=22.13"
@@ -11,9 +16,11 @@
     "dev": "tsx watch src/server/index.ts",
     "dev:web": "vite --config web/vite.config.ts",
     "build": "tsc -p tsconfig.json && vite build --config web/vite.config.ts",
-    "start": "node dist/server/index.js",
+    "start": "node launcher.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start:direct": "node dist/server/index.js",
+    "release": "tsx scripts/release.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.322",

@@ -1,0 +1,48 @@
+name: Phát hành
+
+# Chạy khi đẩy tag vX.Y.Z (lệnh `npm run release` tự đẩy tag).
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Số bản trong tag phải khớp package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then echo "Tag v$TAG khác package.json $PKG"; exit 1; fi
+          echo "VERSION=$TAG" >> "$GITHUB_ENV"
+
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Đóng gói (bản đã build, khách không phải build)
+        run: |
+          NAME="tro-ly-cdn-v${VERSION}.tar.gz"
+          mkdir stage
+          cp -r dist package.json package-lock.json launcher.mjs LICENSE NOTICE README.md CHANGELOG.md stage/
+          tar -czf "$NAME" -C stage .
+          sha256sum "$NAME" > SHA256SUMS
+          echo "ASSET=$NAME" >> "$GITHUB_ENV"
+
+      - name: Ghi chú thay đổi lấy từ CHANGELOG.md
+        run: npx tsx scripts/changelog-section.ts "$VERSION" > notes.md
+
+      - name: Tạo GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v${VERSION}" "$ASSET" SHA256SUMS --title "v${VERSION}" --notes-file notes.md --verify-tag

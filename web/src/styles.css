@@ -75,6 +75,8 @@ button.danger:not(.link):hover:not(:disabled) { background: var(--danger-bg-hove
 button svg, .icon { width: 16px; height: 16px; flex: none; }
 .small-btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
 
+a { color: var(--primary-ink); font-weight: 500; text-decoration: none; }
+a:hover { text-decoration: underline; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .error { color: var(--error-text); margin: 0; }
