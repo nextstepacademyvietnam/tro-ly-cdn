@@ -1,5 +1,5 @@
 import { buildApp } from "./app.js";
-import { APP_VERSION, DATA_DIR, HOST, INSTALL_DIR, PACKAGE_INFO, PORT, WEB_DIR } from "./config.js";
+import { APP_VERSION, DATA_DIR, HOST, INSTALL_DIR, INSTALL_KIND, PACKAGE_INFO, PORT, WEB_DIR } from "./config.js";
 import { RESTART_EXIT_CODE, Updater, repoFromPackage } from "./updates.js";
 import { AssistantStore } from "../core/assistantStore.js";
 import { openDb } from "./db.js";
@@ -31,6 +31,7 @@ const updater = new Updater({
   db,
   dataDir: DATA_DIR,
   installDir: INSTALL_DIR,
+  installKind: INSTALL_KIND,
   releaseUrl,
   restart: () => shutdown(RESTART_EXIT_CODE),
   onNewVersion: (r) => {

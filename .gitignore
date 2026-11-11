@@ -4,3 +4,4 @@ data/
 data-dev/
 *.log
 .env
+release/

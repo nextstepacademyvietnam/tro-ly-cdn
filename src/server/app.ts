@@ -201,7 +201,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get("/api/update", async () =>
     updater
       ? updater.status()
-      : { current: deps.version ?? "", latest: null, notes: "", url: "", publishedAt: "", important: false, canSelfUpdate: false, checkedAt: 0, checkEnabled: false, state: "idle", error: "", lastResult: null },
+      : { current: deps.version ?? "", latest: null, notes: "", url: "", publishedAt: "", important: false, canSelfUpdate: false, installKind: "folder", checkedAt: 0, checkEnabled: false, state: "idle", error: "", lastResult: null },
   );
   app.post("/api/update/check", async (_req, reply) => {
     if (!updater) return reply.code(400).send({ error: "Bản này không kiểm tra cập nhật" });

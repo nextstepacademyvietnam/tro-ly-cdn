@@ -124,6 +124,8 @@ export interface UpdaterOptions {
   dataDir: string;
   /** Thư mục cài của launcher; không có thì chỉ báo bản mới, không tự cập nhật. */
   installDir?: string | null;
+  /** Cách cài, để web hướng dẫn cập nhật tay đúng kiểu (git pull hay tải ZIP). */
+  installKind?: "launcher" | "git" | "folder";
   releaseUrl: string | null;
   fetch?: typeof fetch;
   /** Chạy lệnh (npm ci, tar). Thay được khi test. */
@@ -176,6 +178,7 @@ export class Updater {
       publishedAt: newer?.publishedAt ?? "",
       important: newer ? isImportant(newer.notes) : false,
       canSelfUpdate: this.canSelfUpdate && Boolean(newer?.tarballUrl && newer?.sumsUrl),
+      installKind: this.o.installKind ?? (this.canSelfUpdate ? "launcher" : "folder"),
       checkedAt: this.o.settings.get<number>("update.checkedAt") ?? 0,
       checkEnabled: Boolean(this.o.releaseUrl),
       state: this.step,
