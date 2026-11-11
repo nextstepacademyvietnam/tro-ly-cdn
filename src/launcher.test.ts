@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -44,11 +44,14 @@ describe("launcher.mjs", () => {
   afterEach(async () => {
     for (const p of procs.splice(0)) {
       if (p.exitCode === null) {
-        p.kill();
-        await new Promise((r) => p.once("exit", r));
+        const done = new Promise((r) => p.once("exit", r));
+        // Windows: kill() chỉ tắt launcher, app con vẫn chạy và giữ thư mục bản → tắt cả cây tiến trình.
+        if (process.platform === "win32" && p.pid) spawnSync("taskkill", ["/pid", String(p.pid), "/T", "/F"], { stdio: "ignore" });
+        else p.kill();
+        await done;
       }
     }
-    for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+    for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   async function setup(newIsBroken: boolean) {
