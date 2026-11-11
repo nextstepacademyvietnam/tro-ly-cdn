@@ -9,6 +9,9 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 
 ## [Chưa phát hành]
 
+### Sửa
+- Bộ cài Windows không còn dừng ở bước 4 với lỗi "Unable to save shortcut" trên máy có thư mục tiếng Việt (VD: Màn hình nền OneDrive tên "Máy tính"). Ai đã gặp lỗi này: bấm đúp lại file cài đặt, dữ liệu giữ nguyên.
+
 ## [0.2.0] - 2026-11-11
 
 ### Mới
