@@ -217,14 +217,34 @@ if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmd
 
   if (-not (EnvOr "CDN_NO_SERVICE" "")) {
     $ws = New-Object -ComObject WScript.Shell
+    $fso = New-Object -ComObject Scripting.FileSystemObject
+    # Đường dẫn 8.3 (chỉ chữ không dấu) của file / thư mục; không lấy được thì giữ nguyên.
+    function Short($p) {
+      try { if (Test-Path -LiteralPath $p -PathType Container) { $fso.GetFolder($p).ShortPath } else { $fso.GetFile($p).ShortPath } } catch { $p }
+    }
+    function NoMarks($t) {
+      $d = $t.Normalize([Text.NormalizationForm]::FormD)
+      $o = -join ($d.ToCharArray() | Where-Object { [Globalization.CharUnicodeInfo]::GetUnicodeCategory($_) -ne "NonSpacingMark" })
+      $o -replace "đ", "d" -replace "Đ", "D"
+    }
+    # WScript lưu lối tắt theo bảng mã ANSI: tên hay đường dẫn có chữ như "ợ" thành "?" và báo
+    # "Unable to save shortcut" (VD: Màn hình nền OneDrive "Máy tính", tên "Trợ lý CDN.lnk",
+    # người dùng C:\Users\Hiếu). Nên tạo bằng tên tạm không dấu, mọi đường dẫn bên trong dạng 8.3,
+    # mô tả bỏ dấu, rồi đổi sang tên tiếng Việt bằng PowerShell (đọc đúng Unicode).
     function New-Shortcut($path, $target, $arguments, $desc) {
-      $s = $ws.CreateShortcut($path)
-      $s.TargetPath = $target
+      $folder = Split-Path -Parent $path
+      New-Item -ItemType Directory -Force -Path $folder | Out-Null
+      $tmp = Join-Path (Short $folder) ("tro-ly-cdn-" + [Guid]::NewGuid().ToString("N").Substring(0, 8) + ".lnk")
+      if ($arguments -match '^"(.+)"$') { $arguments = '"' + (Short $Matches[1]) + '"' }
+      $s = $ws.CreateShortcut($tmp)
+      $s.TargetPath = (Short $target)
       $s.Arguments = $arguments
-      $s.WorkingDirectory = $Dir
-      $s.Description = $desc
-      $s.IconLocation = (Join-Path $Dir "node\node.exe") + ",0"
+      $s.WorkingDirectory = (Short $Dir)
+      $s.Description = (NoMarks $desc)
+      $s.IconLocation = (Short (Join-Path $Dir "node\node.exe")) + ",0"
       $s.Save()
+      if (Test-Path -LiteralPath $path) { Remove-Item -Force -LiteralPath $path }
+      Move-Item -LiteralPath $tmp -Destination $path
     }
     $wscript = Join-Path $env:SystemRoot "System32\wscript.exe"
     $programs = [Environment]::GetFolderPath("Programs")
@@ -233,7 +253,7 @@ if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmd
     New-Shortcut (Join-Path $programs "Tắt Trợ lý CDN.lnk") (Join-Path $Dir "tat-tro-ly-cdn.cmd") "" "Tắt Trợ lý CDN"
     New-Shortcut (Join-Path $programs "Đặt lại mật khẩu Trợ lý CDN.lnk") (Join-Path $Dir "Dat-lai-mat-khau.cmd") "" "Quên mật khẩu đăng nhập Trợ lý CDN"
     New-Shortcut (Join-Path ([Environment]::GetFolderPath("Startup")) "Trợ lý CDN.lnk") $wscript "`"$Dir\chay-nen.vbs`"" "Bật Trợ lý CDN khi mở máy"
-    Ok "Đã tạo biểu tượng \"Trợ lý CDN\" trên Màn hình nền và menu Start; app tự chạy khi mở máy."
+    Ok "Đã tạo biểu tượng `"Trợ lý CDN`" trên Màn hình nền và menu Start; app tự chạy khi mở máy."
   } else {
     Note "Không tạo biểu tượng (CDN_NO_SERVICE)."
   }
