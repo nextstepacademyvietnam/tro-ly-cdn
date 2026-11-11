@@ -266,6 +266,47 @@ const MIGRATIONS: string[] = [
      FOREIGN KEY (account_id, group_id) REFERENCES tracked_groups(account_id, group_id) ON DELETE CASCADE
    );
    CREATE INDEX group_welcomes_due ON group_welcomes (status, due_at);`,
+  // Mục MKT: kết nối nền tảng (Facebook, YouTube, TikTok, quảng cáo Meta, Pancake, Google Sheet), số theo ngày, bài đăng.
+  // Không theo tài khoản Zalo: một bộ kết nối cho cả app. Ngày là ngày VN dạng YYYY-MM-DD (Facebook theo nhãn ngày của Meta).
+  `CREATE TABLE mkt_connections (
+     kind TEXT PRIMARY KEY,
+     label TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'off' CHECK (status IN ('off', 'ok', 'error')),
+     error TEXT NOT NULL DEFAULT '',
+     secret TEXT NOT NULL DEFAULT '',
+     meta TEXT NOT NULL DEFAULT '{}',
+     connected_at INTEGER NOT NULL DEFAULT 0,
+     pulled_at INTEGER NOT NULL DEFAULT 0,
+     data_until TEXT NOT NULL DEFAULT ''
+   );
+   CREATE TABLE mkt_daily (
+     kind TEXT NOT NULL,
+     metric TEXT NOT NULL,
+     day TEXT NOT NULL,
+     value REAL NOT NULL,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (kind, metric, day)
+   );
+   CREATE TABLE mkt_posts (
+     kind TEXT NOT NULL,
+     post_id TEXT NOT NULL,
+     day TEXT NOT NULL,
+     title TEXT NOT NULL DEFAULT '',
+     url TEXT NOT NULL DEFAULT '',
+     views INTEGER,
+     comments INTEGER,
+     reactions INTEGER,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (kind, post_id)
+   );
+   CREATE INDEX mkt_posts_day ON mkt_posts (kind, day);
+   CREATE TABLE mkt_runs (
+     id INTEGER PRIMARY KEY,
+     kind TEXT NOT NULL,
+     ok INTEGER NOT NULL,
+     message TEXT NOT NULL DEFAULT '',
+     at INTEGER NOT NULL
+   );`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {
