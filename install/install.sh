@@ -137,7 +137,15 @@ EOF
 chmod +x "$DIR/chay.sh"
 LOG="$DIR/data/logs/tro-ly-cdn.log"
 SERVICE=""
-start_plain() { nohup "$DIR/chay.sh" >>"$LOG" 2>&1 & }
+# Bật app tách hẳn khỏi cửa sổ cài (phiên riêng): đóng Terminal hay script kết thúc thì app vẫn chạy.
+# Không dùng "nohup … &": app vẫn chung nhóm tiến trình nên macOS tắt theo khi cửa sổ cài kết thúc.
+start_plain() {
+  node -e '
+    const fs = require("fs"), { spawn } = require("child_process");
+    const log = fs.openSync(process.argv[2], "a");
+    spawn("/bin/bash", [process.argv[1]], { detached: true, stdio: ["ignore", log, log] }).unref();
+  ' "$DIR/chay.sh" "$LOG"
+}
 
 if [ -n "${CDN_NO_SERVICE:-}" ]; then
   start_plain
