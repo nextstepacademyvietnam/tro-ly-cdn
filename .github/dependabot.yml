@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      phat-trien:
+        dependency-type: development
+    ignore:
+      # Kết nối Zalo không chính thức: chỉ nâng tay sau khi thử với nick Zalo thật.
+      - dependency-name: zca-js
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

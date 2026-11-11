@@ -37,8 +37,22 @@ Biến môi trường:
 | `HOST` | `127.0.0.1` | Chỉ nghe trên máy này. Trên VPS đặt `0.0.0.0` **và** đặt sau HTTPS (Caddy/Nginx) |
 | `CDN_DATA_DIR` | `./data` | Nơi lưu cơ sở dữ liệu và khoá mã hoá |
 | `SECURE_COOKIES` | — | Đặt `1` khi chạy sau HTTPS |
+| `CDN_UPDATE_CHECK` | — | Đặt `0` để tắt kiểm tra bản mới |
 
 Dữ liệu nằm trong `data/`: `tro-ly.sqlite` và `secret.key` (khoá mã hoá API key). Sao lưu cả hai; mất `secret.key` thì phải nhập lại các khoá.
+
+## Cập nhật
+
+App tự hỏi GitHub mỗi 6 giờ xem có bản phát hành mới không. Có thì hiện thanh báo trên web và một thông báo ở chuông, kèm danh sách thay đổi.
+
+- **Cài bằng bộ cài** (chạy qua `launcher.mjs`, có thư mục `versions/`): bấm **Cập nhật ngay**. App tải gói cài, kiểm tra mã SHA256, cài vào thư mục riêng, sao lưu dữ liệu vào `data/backups/` rồi khởi động lại. Bản mới không chạy được trong 90 giây thì app tự quay về bản cũ và chép lại dữ liệu.
+- **Chạy từ mã nguồn** (git clone): app chỉ báo, bạn tự chạy `git pull`, `npm install`, `npm run build` rồi bật lại.
+
+Danh sách thay đổi của từng bản nằm ở [CHANGELOG.md](CHANGELOG.md).
+
+### App gửi gì ra ngoài
+
+Ngoài Zalo và mô hình AI bạn chọn, app chỉ gọi `api.github.com` để hỏi số bản mới nhất, và tải gói cài khi bạn bấm cập nhật. Không gửi dữ liệu, tin nhắn hay thông tin máy của bạn đi đâu. Bản fork tự hỏi repo ghi trong `repository` của `package.json`.
 
 ## Phát triển
 
@@ -49,6 +63,8 @@ npm test
 npm run typecheck
 npx tsx scripts/check-engines.ts   # thử kết nối gói Claude và ChatGPT trên máy này
 ```
+
+Phát hành bản mới: xem [docs/phat-hanh.md](docs/phat-hanh.md). Đóng góp: xem [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Lộ trình
 

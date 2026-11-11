@@ -148,7 +148,8 @@ describe("bộ chạy lịch", () => {
 
     setConnected(false);
     await runner.tick(T("2026-11-11", "08:00") + GRACE_MS + 1000);
-    expect(store.runs(s.id)[0]).toMatchObject({ status: "missed" });
+    // Tìm theo lượt dự kiến, không theo thứ tự: lượt đã gửi ghi giờ thật của máy nên thứ tự đổi theo ngày chạy test.
+    expect(store.runs(s.id).find((r) => r.plannedAt === T("2026-11-11", "08:00"))).toMatchObject({ status: "missed" });
     expect(store.get(s.id)!.nextRunAt).toBe(T("2026-11-12", "08:00"));
   });
 

@@ -24,4 +24,5 @@ Skill evon:ui-ux đọc file này trước khi dựng. Sửa tay được; file 
 - Khung app (`App.tsx`): phương án A — sidebar có ô chuyển tài khoản Zalo, mục Cần xử lý / Hộp thư / Lịch gửi / Tính cách, nhóm Cài đặt (Tài khoản Zalo, Mô hình AI); header có nút Trợ lý đang chạy (tạm dừng) và chuông thông báo
 - Hộp thư (`pages/InboxPage.tsx`): phương án A, 3 cột — danh sách 320px (Cần xử lý / Tất cả, tìm, Lọc), hội thoại có thẻ nháp trên ô nhắn, cột thông tin 300px (nhãn trợ lý, lịch gửi, khách); dưới 1280px cột thông tin trượt từ phải ra qua nút (i)
 - Tài khoản Zalo (`pages/AccountsPage.tsx`): kết nối, mã QR, đổi tên, xoá — tách ra từ Hộp thư cũ
+- Cập nhật (`web/src/update/UpdateDialog.tsx`): thanh báo dưới header (nền `--primary-light`; xong thì nền thành công, lỗi thì nền lỗi), hộp cập nhật dùng `.modal` sẵn có với ghi chú thay đổi và các bước, số bản ở chân sidebar
 - Lịch gửi, Tính cách, Mô hình AI: chưa có wireframe riêng, mới đặt vào khung mới và đổi kiểu nút, ô nhập, card

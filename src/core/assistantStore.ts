@@ -19,7 +19,7 @@ export interface Notice {
   id: number;
   accountId: number;
   threadId: string;
-  kind: "handoff" | "error" | "conflict" | "opt_out" | "command" | "group_stop" | "draft";
+  kind: "handoff" | "error" | "conflict" | "opt_out" | "command" | "group_stop" | "draft" | "update";
   text: string;
   createdAt: number;
   read: boolean;
