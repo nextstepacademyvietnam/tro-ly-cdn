@@ -9,6 +9,8 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 
 ## [Chưa phát hành]
 
+## [0.2.0] - 2026-11-11
+
 ### Mới
 - Mục **Nhóm Zalo**: quét các nhóm nick trợ lý đang ở, chọn nhóm để theo dõi ai vào, ai rời (tự rời, bị mời ra, bị chặn), được ai thêm vào.
 - Thống kê nhóm theo ngày, tuần, tháng: thành viên hiện tại, vào mới, rời, tăng ròng, cách vào nhóm, ai thêm nhiều người nhất, tỉ lệ ở lại sau 7 và 30 ngày. Xuất danh sách vào/rời ra file CSV mở bằng Excel.
