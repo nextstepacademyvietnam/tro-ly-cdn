@@ -4,16 +4,20 @@ import {
   Bot,
   Bug,
   CalendarClock,
+  ChartLine,
   Check,
   ChevronsUpDown,
   Cpu,
   Inbox,
+  LayoutDashboard,
   LogOut,
   Menu,
   MessagesSquare,
   Pause,
   Play,
+  Plug,
   Plus,
+  RefreshCw,
   Smartphone,
   Sparkles,
   SunMoon,
@@ -31,9 +35,14 @@ import { SchedulesPage } from "./schedules/SchedulePanels";
 import { Popover, initials, timeAndDay } from "./ui";
 import { UpdateBanner, UpdateDialog, useUpdate } from "./update/UpdateDialog";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
+import { OverviewPage } from "./pages/mkt/OverviewPage";
+import { ChannelsPage } from "./pages/mkt/ChannelsPage";
+import { ConnectionsPage } from "./pages/mkt/ConnectionsPage";
+import "./mkt.css";
 
-type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string };
-export type Page = "can" | "hop" | "schedules" | "groups" | "profiles" | "accounts" | "models";
+type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string; features?: { mkt?: boolean } };
+export type Page = "can" | "hop" | "schedules" | "groups" | "profiles" | "accounts" | "models" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
+const MKT_PAGES: Page[] = ["mkt", "mkt-kenh", "mkt-ketnoi"];
 type Theme = "system" | "light" | "dark";
 
 const TITLES: Record<Page, string> = {
@@ -44,7 +53,12 @@ const TITLES: Record<Page, string> = {
   profiles: "Tính cách",
   accounts: "Tài khoản Zalo",
   models: "Mô hình AI",
+  mkt: "Tổng quan MKT",
+  "mkt-kenh": "Kênh",
+  "mkt-ketnoi": "Kết nối",
 };
+/** Tên mục trên menu (tiêu đề trang MKT dài hơn). */
+const NAV_LABEL: Partial<Record<Page, string>> = { mkt: "Tổng quan" };
 const THEME_LABEL: Record<Theme, string> = { system: "theo máy", light: "sáng", dark: "tối" };
 
 /** Theme chạy bằng class .dark trên <html> (khối .dark của tokens.css); "theo máy" nghe prefers-color-scheme. */
@@ -82,6 +96,7 @@ export function App() {
   const update = useUpdate();
   const [updateOpen, setUpdateOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [mktErrors, setMktErrors] = useState(0);
 
   const refresh = () => api<Status>("/api/status").then(setStatus);
   useEffect(() => {
@@ -99,6 +114,22 @@ export function App() {
       return id;
     });
   }, []);
+  // Số kết nối MKT đang lỗi, hiện cạnh mục Kết nối.
+  const mktOn = !!status?.features?.mkt;
+  useEffect(() => {
+    if (!status?.user || !mktOn) return;
+    const load = () =>
+      api<{ connections: { status: string }[] }>("/api/mkt/connections")
+        .then((r) => setMktErrors(r.connections.filter((c) => c.status === "error").length))
+        .catch(() => undefined);
+    load();
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, [status?.user, mktOn, page]);
+  // Mục MKT tắt (bản cho khách) mà trang lưu lại là trang MKT: về Cần xử lý.
+  useEffect(() => {
+    if (status?.user && !mktOn && MKT_PAGES.includes(page)) setPage("can");
+  }, [status?.user, mktOn, page]);
   useEffect(() => {
     if (!status?.user) return;
     loadAccounts().catch(() => undefined);
@@ -136,11 +167,12 @@ export function App() {
   if (!status.user) return <AuthScreen firstRun={!status.hasAdmin} onDone={refresh} />;
 
   const current = accounts.find((a) => a.id === accountId);
-  const nav = (p: Page, Icon: typeof Inbox, count?: number) => (
+  const isMkt = MKT_PAGES.includes(page);
+  const nav = (p: Page, Icon: typeof Inbox, count?: number | string) => (
     <button type="button" className="nav-item" aria-current={page === p ? "page" : undefined} onClick={() => go(p)}>
       <Icon aria-hidden />
-      <span className="nav-label">{TITLES[p]}</span>
-      {count ? <span className="nav-count">{count}</span> : null}
+      <span className="nav-label">{NAV_LABEL[p] ?? TITLES[p]}</span>
+      {count ? <span className={typeof count === "string" ? "nav-count warn" : "nav-count"}>{count}</span> : null}
     </button>
   );
 
@@ -154,68 +186,77 @@ export function App() {
           </span>
           <span className="logo-name">Trợ lý CDN</span>
         </div>
-        <Popover
-          wrapClassName="acct-wrap"
-          trigger={({ toggle }) => (
-            <button type="button" className="acct-btn" onClick={toggle} title="Đổi tài khoản Zalo">
-              <span className="acct-avatar">
-                {initials(current?.name ?? "") || "?"}
-                <span className={`state ${stateOf(current)}`} />
-              </span>
-              <span className="acct-text">
-                <span className="acct-name">{current?.name ?? "Chưa có tài khoản"}</span>
-                <span className="acct-sub">
-                  {stateText(current)} · {accounts.length} tài khoản
+        <nav className="nav">
+          <div className="nav-section first">Zalo</div>
+          <Popover
+            wrapClassName="acct-wrap"
+            trigger={({ toggle }) => (
+              <button type="button" className="acct-btn" onClick={toggle} title="Đổi tài khoản Zalo">
+                <span className="acct-avatar">
+                  {initials(current?.name ?? "") || "?"}
+                  <span className={`state ${stateOf(current)}`} />
                 </span>
-              </span>
-              <ChevronsUpDown aria-hidden />
-            </button>
-          )}
-        >
-          {(close) => (
-            <>
-              <div className="menu-title">Tài khoản Zalo</div>
-              {accounts.map((a) => (
+                <span className="acct-text">
+                  <span className="acct-name">{current?.name ?? "Chưa có tài khoản"}</span>
+                  <span className="acct-sub">
+                    {stateText(current)} · {accounts.length} tài khoản
+                  </span>
+                </span>
+                <ChevronsUpDown aria-hidden />
+              </button>
+            )}
+          >
+            {(close) => (
+              <>
+                <div className="menu-title">Tài khoản Zalo</div>
+                {accounts.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="menu-item"
+                    onClick={() => {
+                      chooseAccount(a.id);
+                      close();
+                    }}
+                  >
+                    <span className={`dot ${stateOf(a)}`} />
+                    <span className="menu-text">
+                      <span>{a.name}</span>
+                      <span className="menu-sub">{stateText(a)}</span>
+                    </span>
+                    {a.id === accountId && <Check className="check" aria-label="Đang chọn" />}
+                  </button>
+                ))}
+                <div className="menu-sep" />
                 <button
-                  key={a.id}
                   type="button"
                   className="menu-item"
                   onClick={() => {
-                    chooseAccount(a.id);
                     close();
+                    addAccount().catch(() => undefined);
                   }}
                 >
-                  <span className={`dot ${stateOf(a)}`} />
-                  <span className="menu-text">
-                    <span>{a.name}</span>
-                    <span className="menu-sub">{stateText(a)}</span>
-                  </span>
-                  {a.id === accountId && <Check className="check" aria-label="Đang chọn" />}
+                  <Plus aria-hidden />
+                  <span className="menu-text">Thêm tài khoản Zalo</span>
                 </button>
-              ))}
-              <div className="menu-sep" />
-              <button
-                type="button"
-                className="menu-item"
-                onClick={() => {
-                  close();
-                  addAccount().catch(() => undefined);
-                }}
-              >
-                <Plus aria-hidden />
-                <span className="menu-text">Thêm tài khoản Zalo</span>
-              </button>
-            </>
-          )}
-        </Popover>
-        <nav className="nav">
-          {nav("can", Inbox, current?.needsAction)}
+              </>
+            )}
+          </Popover>
+            {nav("can", Inbox, current?.needsAction)}
           {nav("hop", MessagesSquare, current?.unreadConversations)}
           {nav("schedules", CalendarClock, current?.activeSchedules)}
           {nav("groups", UsersRound, current?.trackedGroups)}
           {nav("profiles", Sparkles)}
-          <div className="nav-section">Cài đặt</div>
           {nav("accounts", Smartphone)}
+          {mktOn && (
+            <>
+              <div className="nav-section">MKT</div>
+              {nav("mkt", LayoutDashboard)}
+              {nav("mkt-kenh", ChartLine)}
+              {nav("mkt-ketnoi", Plug, mktErrors ? `${mktErrors} lỗi` : undefined)}
+            </>
+          )}
+          <div className="nav-section">Cài đặt</div>
           {nav("models", Cpu)}
         </nav>
         <div className="sidebar-foot">
@@ -261,7 +302,8 @@ export function App() {
           </button>
           <h1>{TITLES[page]}</h1>
           <div className="header-actions">
-            {current && <PauseButton account={current} onChanged={loadAccounts} />}
+            {!isMkt && current && <PauseButton account={current} onChanged={loadAccounts} />}
+            {(page === "mkt" || page === "mkt-kenh") && <MktRefreshButton />}
             <Bell account={current} onRead={loadAccounts} />
           </div>
         </header>
@@ -270,8 +312,8 @@ export function App() {
         {updateOpen && update.status && (
           <UpdateDialog status={update.status} restarting={update.restarting} onClose={() => setUpdateOpen(false)} onStatus={update.setStatus} />
         )}
-        {accountId && (
-          <main key={`${page === "can" || page === "hop" ? "inbox" : page}-${accountId}`} className="main-body">
+        {(accountId || isMkt) && (
+          <main key={`${page === "can" || page === "hop" ? "inbox" : page}-${isMkt ? "mkt" : accountId}`} className="main-body">
             {(page === "can" || page === "hop") && (
               <InboxPage
                 account={current}
@@ -290,7 +332,7 @@ export function App() {
                 <GroupsPage account={current} onGoAccounts={() => go("accounts")} />
               </div>
             )}
-            {page === "profiles" && (
+            {page === "profiles" && accountId && (
               <div className="page">
                 <ProfilesPage accounts={accounts} accountId={accountId} onNeedEngine={() => go("models")} />
               </div>
@@ -298,6 +340,21 @@ export function App() {
             {page === "accounts" && (
               <div className="page narrow">
                 <AccountsPage account={current} accounts={accounts} onAccountsChanged={loadAccounts} onAddAccount={addAccount} />
+              </div>
+            )}
+            {page === "mkt" && (
+              <div className="page">
+                <OverviewPage onGoConnect={() => go("mkt-ketnoi")} />
+              </div>
+            )}
+            {page === "mkt-kenh" && (
+              <div className="page">
+                <ChannelsPage onGoConnect={() => go("mkt-ketnoi")} />
+              </div>
+            )}
+            {page === "mkt-ketnoi" && (
+              <div className="page">
+                <ConnectionsPage />
               </div>
             )}
             {page === "models" && (
@@ -309,6 +366,28 @@ export function App() {
         )}
       </div>
     </div>
+  );
+}
+
+/** Làm mới số MKT ngay: lấy lại mọi nền tảng đã nối, rồi báo các trang MKT tải lại. */
+function MktRefreshButton() {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      await api("/api/mkt/refresh", { body: {} });
+      // Lấy số chạy nền: chờ chút rồi tải lại vài lần.
+      for (const ms of [4000, 12000, 30000]) setTimeout(() => window.dispatchEvent(new Event("mkt:lam-moi")), ms);
+      setTimeout(() => setBusy(false), 4000);
+    } catch {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className="mkt-refresh" onClick={run} disabled={busy} title="Lấy lại số mới nhất của mọi kênh đã nối">
+      <RefreshCw aria-hidden className={busy ? "spin" : ""} />
+      <span className="mkt-refresh-text">{busy ? "Đang làm mới…" : "Làm mới"}</span>
+    </button>
   );
 }
 

@@ -22,6 +22,9 @@ import { type ScheduleDeps, registerScheduleRoutes } from "./routes/schedules.js
 import type { Updater } from "./updates.js";
 import { GroupTracker } from "../groups/tracker.js";
 import { registerGroupRoutes } from "./routes/groups.js";
+import { MKT_PUBLIC_PREFIX, registerMktRoutes } from "./routes/mkt.js";
+import { MktStore } from "../mkt/store.js";
+import { MktRunner } from "../mkt/runner.js";
 import { registerFeedbackRoutes } from "./routes/feedback.js";
 import {
   type EngineConfig,
@@ -56,6 +59,10 @@ export interface AppDeps {
   feedbackUrl?: string | null;
   /** Cho test thay fetch khi gửi báo lỗi. */
   feedbackFetch?: typeof fetch;
+  /** Gọi API các nền tảng MKT (Facebook…). Test thay bằng fetch giả. */
+  mktFetch?: typeof fetch;
+  /** Bật mục MKT (chỉ máy NSG). Tắt thì không có route /api/mkt/* và không chạy lịch lấy số. */
+  mkt?: boolean;
 }
 
 declare module "fastify" {
@@ -93,7 +100,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.addHook("onRequest", async (req, reply) => {
     req.user = auth.userForToken(req.cookies[COOKIE]);
     const url = req.url.split("?")[0];
-    if (url.startsWith("/api/") && !PUBLIC.has(url) && !req.user) {
+    if (url.startsWith("/api/") && !PUBLIC.has(url) && !(deps.mkt && url.startsWith(MKT_PUBLIC_PREFIX)) && !req.user) {
       return reply.code(401).send({ error: "Cần đăng nhập" });
     }
   });
@@ -113,6 +120,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // Để màn đăng nhập chỉ đúng cách đặt lại mật khẩu cho máy này.
     platform: process.platform,
     installKind: deps.updater?.status().installKind ?? "folder",
+    features: { mkt: !!deps.mkt },
   }));
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/setup", async (req, reply) => {
@@ -223,6 +231,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   if (deps.dataDir) groups.start();
   app.addHook("onClose", async () => groups.stop());
   registerGroupRoutes(app, groups);
+
+  // ---------- Mục MKT: nối Fanpage, YouTube, TikTok…, lấy số mỗi sáng ----------
+  if (deps.mkt) {
+    const mktStore = new MktStore(deps.db, deps.box);
+    const mktRunner = new MktRunner(mktStore, {
+      fetch: deps.mktFetch,
+      notify: (text) => {
+        for (const a of accounts.list()) assistant.notify(a.id, "mkt", text);
+      },
+      log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+    });
+    if (deps.dataDir) mktRunner.start();
+    app.addHook("onClose", async () => mktRunner.stop());
+    registerMktRoutes(app, { store: mktStore, runner: mktRunner, fetch: deps.mktFetch });
+  }
   registerFeedbackRoutes(app, {
     url: deps.feedbackUrl ?? null,
     version: deps.version ?? "",

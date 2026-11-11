@@ -9,6 +9,9 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 
 ## [Chưa phát hành]
 
+### Mới
+- Menu chia nhóm **Zalo / Cài đặt**; ô chuyển tài khoản Zalo nằm ngay trong nhóm Zalo.
+
 ## [0.2.1] - 2026-11-11
 
 ### Sửa

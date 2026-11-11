@@ -1,0 +1,147 @@
+/* Mục MKT — theo wireframe phương án A (đã ghép thẻ từng kênh của B). Dùng lại .utabs, .grp-seg, .grp-table, .grp-empty của groups.css. */
+.mkt-stack { display: flex; flex-direction: column; gap: 16px; }
+.mkt-h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.mkt-pad { padding: 4px 0; }
+
+/* Khoảng ngày */
+.mkt-range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.mkt-range-note { margin-left: auto; font-size: 12px; }
+@media (max-width: 639px) {
+  .mkt-range-seg { width: 100%; }
+  .mkt-range-seg button { flex: 1; padding: 0 8px; }
+  .mkt-range-note { margin-left: 0; }
+}
+
+/* Dải lỗi */
+.mkt-err-bar { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--error-bg); color: var(--error-strong); font-size: 14px; }
+.mkt-err-bar > svg { width: 16px; height: 16px; flex: none; }
+.mkt-err-bar > span { flex: 1; min-width: 0; }
+.mkt-err-bar button { color: var(--error-strong); font-weight: 500; }
+.mkt-err-bar button:hover:not(:disabled) { background: color-mix(in srgb, var(--error-strong) 10%, transparent); }
+.mkt-err-box { padding: 8px 12px; border-radius: 8px; background: var(--error-bg); color: var(--error-strong); font-size: 12px; }
+
+/* 6 thẻ số */
+.mkt-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (min-width: 768px) { .mkt-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .mkt-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.mkt-kpi { display: flex; flex-direction: column; gap: 4px; padding: 16px; }
+.mkt-kpi .l { font-size: 12px; font-weight: 500; color: var(--muted); }
+.mkt-kpi .v-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.mkt-kpi .v { font-size: 24px; font-weight: 600; line-height: 1.3; }
+.mkt-kpi .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.mkt-delta { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.mkt-delta svg { width: 14px; height: 14px; }
+.mkt-delta.up { color: var(--success); }
+.mkt-delta.down { color: var(--error-strong); }
+.mkt-delta.same { color: var(--muted); font-weight: 400; }
+
+/* Thẻ kênh + lead */
+.mkt-two { display: grid; gap: 16px; }
+@media (min-width: 1280px) { .mkt-two { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
+.mkt-ch-grid { display: grid; gap: 16px; align-content: start; }
+@media (min-width: 768px) { .mkt-ch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mkt-ch { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 16px; }
+.mkt-ch.off { align-items: flex-start; }
+.mkt-ch-head, .mkt-conn-head, .mkt-drawer-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mkt-kind-ic { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--background); color: var(--neutral); }
+.mkt-kind-ic svg { width: 16px; height: 16px; }
+.mkt-ch-title { min-width: 0; flex: 1; }
+.mkt-ch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.mkt-ch-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.mkt-ch-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mkt-ch-nums .l { font-size: 12px; color: var(--muted); }
+.mkt-ch-nums .v { font-size: 18px; font-weight: 600; }
+.mkt-spark { display: flex; align-items: flex-end; gap: 4px; height: 40px; }
+.mkt-spark span { flex: 1; min-width: 2px; border-radius: 4px; background: var(--chart-fill); }
+.mkt-spark span.none { height: 4px; background: var(--background); }
+.mkt-leads { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+@media (min-width: 1024px) { .mkt-leads, .mkt-ch { padding: 16px 20px; } }
+.mkt-leads-empty { padding: 24px 8px; }
+.mkt-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+.mkt-badge.ok { background: var(--success-bg); color: var(--success); }
+.mkt-badge.bad { background: var(--error-bg); color: var(--error-strong); }
+.mkt-badge.off { background: var(--background); color: var(--neutral); }
+
+/* Màn Kênh */
+.utabs .mkt-badge { margin-left: 6px; }
+.mkt-detail { display: grid; gap: 16px; }
+@media (min-width: 1280px) { .mkt-detail { grid-template-columns: minmax(0, 1fr) 380px; align-items: start; } }
+.mkt-daily { padding: 0; overflow: hidden; }
+.mkt-card-head { display: flex; align-items: center; gap: 8px; padding: 16px 16px 8px; }
+.mkt-card-head .mkt-h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkt-card-head .mkt-note { flex: none; }
+@media (max-width: 1023px) { .mkt-card-head .mkt-note { display: none; } }
+.mkt-card-head .push { flex: none; }
+.mkt-top { padding: 0 8px 8px; }
+.mkt-top .mkt-card-head { padding: 16px 8px 8px; }
+.mkt-table td.num, .mkt-table th.num { text-align: right; }
+.mkt-table th, .mkt-table td { white-space: nowrap; }
+.mkt-table tbody tr { cursor: default; }
+.mkt-table .mkt-total td { font-weight: 600; }
+.btn-link-outline { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--foreground); font-size: 14px; font-weight: 400; }
+.btn-link-outline:hover { background: var(--button-hover); text-decoration: none; }
+.btn-link-outline svg { width: 16px; height: 16px; color: var(--muted); }
+@media (max-width: 639px) { .mkt-fade { mask-image: linear-gradient(to right, #000 82%, transparent); padding-right: 32px; } }
+
+/* Top bài */
+.mkt-posts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.mkt-posts a { display: flex; flex-direction: column; gap: 4px; padding: 10px 8px; border-radius: 8px; color: var(--foreground); font-weight: 400; }
+.mkt-posts a:hover { background: var(--item-hover); text-decoration: none; }
+.mkt-posts .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; font-weight: 500; }
+.mkt-posts .m { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); }
+.mkt-posts .w { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkt-posts .n { display: inline-flex; flex: none; align-items: center; gap: 4px; }
+.mkt-posts .n svg { width: 14px; height: 14px; }
+
+/* Panel chi tiết trượt từ phải */
+.mkt-drawer {
+  position: fixed; inset: 0 0 0 auto; z-index: 45; display: flex; flex-direction: column; width: min(560px, 100%);
+  background: var(--surface); box-shadow: var(--elevation-modal); translate: 100% 0; visibility: hidden;
+  transition: translate 0.35s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s 0.35s;
+}
+.mkt-drawer.open { translate: 0 0; visibility: visible; transition-duration: 0.5s, 0s; transition-delay: 0s; }
+@media (prefers-reduced-motion: reduce) { .mkt-drawer { transition: none; } }
+.mkt-drawer-head { height: 56px; flex: none; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border-strong); }
+.mkt-drawer-body { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 12px; overflow-y: auto; padding: 16px; }
+.mkt-drawer-body .grp-table-wrap { margin: 0 -16px; }
+.mkt-icon-link { display: inline-grid; place-items: center; color: var(--muted); }
+
+/* Màn Kết nối */
+.mkt-connect { max-width: 1080px; }
+.mkt-conn-grid { display: grid; gap: 16px; }
+@media (min-width: 768px) { .mkt-conn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .mkt-conn-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.mkt-conn { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 16px; }
+.mkt-sheet { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+.mkt-runs { padding: 12px 16px; }
+.mkt-runs summary { margin: 0; font-size: 14px; color: var(--foreground); }
+.mkt-runs ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.mkt-runs li.bad { color: var(--error-strong); }
+.mkt-dialog { width: min(600px, 100%); }
+.mkt-dialog.narrow { width: min(440px, 100%); }
+.mkt-steps { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+.mkt-copy { display: flex; align-items: center; gap: 4px; margin-top: 6px; padding: 4px 4px 4px 10px; border-radius: 8px; background: var(--background); }
+.mkt-copy code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.icon-inline { width: 14px; height: 14px; vertical-align: -2px; }
+.mkt-pick { display: grid; gap: 2px; max-height: 50vh; overflow-y: auto; }
+
+/* Khung app: nhóm menu, nút Làm mới ở header */
+.nav .nav-section.first { margin-top: 0; }
+.nav .acct-wrap { padding: 0 0 4px; }
+.nav-count.warn { color: var(--warning); font-weight: 500; }
+.nav-item[aria-current="page"] .nav-count.warn { color: inherit; }
+.mkt-refresh { gap: 8px; padding: 0 12px; }
+.mkt-refresh svg { color: var(--muted); }
+@media (max-width: 639px) { .mkt-refresh { width: 36px; padding: 0; } .mkt-refresh-text { display: none; } }
+
+/* Lead theo nguồn */
+.mkt-leadbars { display: flex; flex-direction: column; gap: 10px; }
+.mkt-leadbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; font-size: 14px; }
+.mkt-leadbar .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkt-leadbar .v { font-weight: 500; }
+.mkt-leadbar .track { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--background); overflow: hidden; }
+.mkt-leadbar .track span { display: block; height: 100%; border-radius: 4px; background: var(--chart-fill); }
+.mkt-leadbar-total { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border-strong); font-size: 14px; }
+.mkt-leadbar-total .tnum { font-weight: 600; }
+@media (min-width: 1280px) { .mkt-detail.single { grid-template-columns: minmax(0, 1fr); } }
+.mkt-code { font: 12px/1.5 ui-monospace, Consolas, monospace; }
