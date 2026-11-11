@@ -30,14 +30,8 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      - name: Đóng gói (bản đã build, khách không phải build)
-        run: |
-          NAME="tro-ly-cdn-v${VERSION}.tar.gz"
-          mkdir stage
-          cp -r dist package.json package-lock.json launcher.mjs LICENSE NOTICE README.md CHANGELOG.md stage/
-          tar -czf "$NAME" -C stage .
-          sha256sum "$NAME" > SHA256SUMS
-          echo "ASSET=$NAME" >> "$GITHUB_ENV"
+      - name: Đóng gói (bản đã build + bộ cài)
+        run: node scripts/pack.mjs
 
       - name: Ghi chú thay đổi lấy từ CHANGELOG.md
         run: npx tsx scripts/changelog-section.ts "$VERSION" > notes.md
@@ -45,4 +39,4 @@ jobs:
       - name: Tạo GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v${VERSION}" "$ASSET" SHA256SUMS --title "v${VERSION}" --notes-file notes.md --verify-tag
+        run: gh release create "v${VERSION}" release/* --title "v${VERSION}" --notes-file notes.md --verify-tag

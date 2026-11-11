@@ -17,6 +17,24 @@ Tính năng đầu tiên đang làm: **trợ lý Zalo cá nhân** — trả lờ
 
 Trợ lý CDN **không đọc, không lưu token đăng nhập** của Claude hay ChatGPT: nó chỉ gọi đúng chương trình `claude` / `codex` mà bạn đã tự cài và tự đăng nhập. CLI chạy trong một thư mục rỗng riêng, tắt hết công cụ, nên chỉ biết những gì app đưa cho. Khi chạy cho doanh nghiệp, nên dùng API key theo điều khoản của nhà cung cấp.
 
+## Cài đặt
+
+Bộ cài tự tải Node.js riêng cho app (không cần quyền quản trị, không đụng phần mềm khác), cài bản mới nhất, cài Codex để nối gói ChatGPT, cho app tự chạy khi mở máy, rồi mở app trên trình duyệt. Chạy lại bộ cài = sửa chữa hoặc lên bản mới nhất, dữ liệu giữ nguyên.
+
+**Windows 10/11**: tải [Cai-dat-Tro-ly-CDN.cmd](https://github.com/nextstepacademyvietnam/tro-ly-cdn/releases/latest/download/Cai-dat-Tro-ly-CDN.cmd) rồi bấm đúp. Windows hiện "Windows đã bảo vệ máy tính của bạn" thì bấm **Thông tin thêm** → **Vẫn chạy**. App cài vào `%LOCALAPPDATA%TroLyCDN`, có biểu tượng "Trợ lý CDN" trên Màn hình nền.
+
+**macOS** (và Linux/VPS): mở Terminal, dán:
+
+```bash
+curl -fsSL https://github.com/nextstepacademyvietnam/tro-ly-cdn/releases/latest/download/install.sh | bash
+```
+
+macOS cài vào `~/Library/Application Support/TroLyCDN` (Linux: `~/.tro-ly-cdn`), chạy nền bằng LaunchAgent (Linux: systemd), có ứng dụng "Trợ lý CDN" để bấm mở.
+
+Gỡ cài đặt: chạy `go-cai-dat.cmd` (Windows) hoặc `go-cai-dat.sh` (macOS, Linux) trong thư mục cài. Mặc định giữ lại thư mục `data`.
+
+Hướng dẫn từng bước cho người không rành kỹ thuật: [docs/Huong-dan-su-dung-Tro-ly-CDN.docx](docs/Huong-dan-su-dung-Tro-ly-CDN.docx).
+
 ## Chạy thử (bản dành cho người phát triển)
 
 Cần Node.js 22.13 trở lên.
@@ -74,7 +92,7 @@ Phát hành bản mới: xem [docs/phat-hanh.md](docs/phat-hanh.md). Đóng góp
 4. Thư ký cá nhân: tóm tắt ngày, nhắc việc
 5. Chăm sóc chủ động: sinh nhật, follow-up (đã có: lịch gửi tin kèm ảnh)
 6. Quản lý nhóm Zalo
-7. Bộ cài một lệnh cho VPS và Windows, Docker
+7. ✅ Bộ cài cho Windows, macOS, Linux/VPS; cập nhật một chạm (còn: Docker)
 
 ## Giấy phép
 

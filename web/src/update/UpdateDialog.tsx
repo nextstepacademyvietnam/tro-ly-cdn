@@ -10,6 +10,7 @@ export interface UpdateStatus {
   publishedAt: string;
   important: boolean;
   canSelfUpdate: boolean;
+  installKind: "launcher" | "git" | "folder";
   checkedAt: number;
   checkEnabled: boolean;
   state: "idle" | "downloading" | "verifying" | "installing" | "backing_up" | "restarting" | "error";
@@ -238,9 +239,22 @@ export function UpdateDialog({
                   )}
                 </div>
               </>
+            ) : status.installKind !== "git" ? (
+              <div className="stack-sm">
+                <p className="small">Bản này được cài bằng file ZIP nên không tự cập nhật được. Cách cập nhật:</p>
+                <ol className="small update-manual">
+                  <li>Tắt app, đổi tên thư mục app thành tro-ly-cdn-cu.</li>
+                  <li>Tải ZIP bản mới từ GitHub, giải nén thành thư mục tro-ly-cdn.</li>
+                  <li>
+                    Chép thư mục <b>data</b> từ thư mục cũ sang thư mục mới (đây là toàn bộ dữ liệu).
+                  </li>
+                  <li>Trong thư mục mới chạy npm install, npm run build, npm start.</li>
+                </ol>
+                <p className="small muted">Muốn lần sau cập nhật bằng một nút bấm: cài lại bằng bộ cài (xem README), rồi chép thư mục data vào thư mục cài.</p>
+              </div>
             ) : (
               <div className="stack-sm">
-                <p className="small">Bản này chạy từ mã nguồn nên không tự cập nhật được. Mở cửa sổ lệnh trong thư mục app rồi chạy:</p>
+                <p className="small">Bản này chạy từ mã nguồn (git) nên không tự cập nhật được. Mở cửa sổ lệnh trong thư mục app rồi chạy:</p>
                 <pre className="doc-text update-cmd">git pull{"\n"}npm install{"\n"}npm run build</pre>
                 <p className="small muted">Sau đó tắt app và bật lại.</p>
               </div>

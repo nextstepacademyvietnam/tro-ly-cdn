@@ -24,3 +24,57 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  installer:
+    name: Thử bộ cài (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      CDN_RELEASE_URL: http://127.0.0.1:3021/latest
+      CDN_SKIP_CODEX: "1"
+      CDN_NO_SERVICE: "1"
+      CDN_NO_OPEN: "1"
+      CDN_YES: "1"
+      CDN_PORT: "3100"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/pack.mjs
+      - name: Giả GitHub Releases
+        shell: bash
+        run: |
+          node scripts/fake-release-server.mjs release 3021 > fake.log 2>&1 &
+          sleep 2 && curl -fsS http://127.0.0.1:3021/latest
+
+      - name: Chạy bộ cài (macOS, Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: CDN_INSTALL_DIR="$RUNNER_TEMP/TroLyCDN" bash install/install.sh
+      - name: Chạy bộ cài (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set "CDN_INSTALL_DIR=%RUNNER_TEMP%\TroLyCDN"
+          powershell -NoProfile -ExecutionPolicy Bypass -File install\install.ps1
+
+      - name: App chạy qua launcher, đúng số bản
+        shell: bash
+        run: |
+          WANT="$(node -p "require('./package.json').version")"
+          GOT="$(curl -fsS http://127.0.0.1:3100/api/status | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")"
+          echo "cần $WANT, đang chạy $GOT"
+          test "$WANT" = "$GOT"
+          cat "$RUNNER_TEMP/TroLyCDN/current.json"
+          test -f "$RUNNER_TEMP/TroLyCDN/launcher.mjs"
+      - name: Nhật ký khi lỗi
+        if: failure()
+        shell: bash
+        run: cat "$RUNNER_TEMP/TroLyCDN/data/logs/tro-ly-cdn.log" fake.log 2>/dev/null || true

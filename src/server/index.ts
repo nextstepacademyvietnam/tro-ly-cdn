@@ -1,5 +1,5 @@
 import { buildApp } from "./app.js";
-import { APP_VERSION, DATA_DIR, HOST, INSTALL_DIR, PACKAGE_INFO, PORT, WEB_DIR } from "./config.js";
+import { APP_VERSION, DATA_DIR, HOST, INSTALL_DIR, INSTALL_KIND, PACKAGE_INFO, PORT, WEB_DIR } from "./config.js";
 import { RESTART_EXIT_CODE, Updater, repoFromPackage } from "./updates.js";
 import { AssistantStore } from "../core/assistantStore.js";
 import { openDb } from "./db.js";
@@ -18,12 +18,12 @@ const scheduleStore = new ScheduleStore(db, DATA_DIR);
 const runner = new ScheduleRunner(scheduleStore, accounts, (msg, extra) => log(msg, extra));
 
 // Hỏi GitHub Releases của repo ghi trong package.json (bản fork tự trỏ về repo của mình).
-// CDN_UPDATE_CHECK=0 để tắt; CDN_UPDATE_URL để trỏ nơi khác khi thử nghiệm.
+// CDN_UPDATE_CHECK=0 để tắt; CDN_UPDATE_URL (hoặc CDN_RELEASE_URL, tên bộ cài dùng) để trỏ nơi khác khi thử nghiệm.
 const repo = repoFromPackage(PACKAGE_INFO);
 const releaseUrl =
   process.env.CDN_UPDATE_CHECK === "0"
     ? null
-    : (process.env.CDN_UPDATE_URL ?? (repo ? `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest` : null));
+    : (process.env.CDN_UPDATE_URL ?? process.env.CDN_RELEASE_URL ?? (repo ? `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest` : null));
 const notices = new AssistantStore(db);
 const updater = new Updater({
   current: APP_VERSION,
@@ -31,6 +31,7 @@ const updater = new Updater({
   db,
   dataDir: DATA_DIR,
   installDir: INSTALL_DIR,
+  installKind: INSTALL_KIND,
   releaseUrl,
   restart: () => shutdown(RESTART_EXIT_CODE),
   onNewVersion: (r) => {

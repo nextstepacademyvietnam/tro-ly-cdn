@@ -22,6 +22,8 @@ export const APP_VERSION = pkg.version;
 export const PACKAGE_INFO = pkg;
 /** Thư mục cài của launcher.mjs — có thì app tự cập nhật được. */
 export const INSTALL_DIR = process.env.CDN_INSTALL_DIR ? path.resolve(process.env.CDN_INSTALL_DIR) : null;
+/** Cách cài: qua bộ cài (tự cập nhật được), từ git clone, hay từ thư mục tải ZIP. */
+export const INSTALL_KIND: "launcher" | "git" | "folder" = INSTALL_DIR ? "launcher" : fs.existsSync(path.join(ROOT_DIR, ".git")) ? "git" : "folder";
 
 export function ensureDataDir(): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });

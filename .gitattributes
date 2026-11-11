@@ -1,0 +1,4 @@
+# Giữ đúng kiểu xuống dòng cho bộ cài: bash cần LF, file .cmd/.ps1 của Windows cần CRLF.
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
