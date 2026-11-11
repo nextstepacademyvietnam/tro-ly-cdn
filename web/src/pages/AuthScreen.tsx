@@ -1,5 +1,52 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
+
+type Status = { platform?: string; installKind?: "launcher" | "git" | "folder" };
+
+/** Cách đặt lại mật khẩu ngay trên máy cài app, theo hệ điều hành và cách cài. */
+function ResetHelp({ status }: { status: Status }) {
+  const { platform = "", installKind = "folder" } = status;
+  let steps: React.ReactNode;
+  if (installKind !== "launcher") {
+    steps = (
+      <>
+        <p>Mở cửa sổ lệnh trong thư mục app (nơi có file package.json) rồi chạy:</p>
+        <pre className="doc-text auth-cmd">npm run reset-password</pre>
+      </>
+    );
+  } else if (platform === "win32") {
+    steps = (
+      <ol>
+        <li>
+          Bấm nút Start, gõ <b>Đặt lại mật khẩu Trợ lý CDN</b> rồi bấm Enter.
+        </li>
+        <li>Cửa sổ hiện tên đăng nhập và mật khẩu mới. Ghi lại rồi đăng nhập ở đây.</li>
+      </ol>
+    );
+  } else if (platform === "darwin") {
+    steps = (
+      <>
+        <p>Mở Terminal (Command + phím cách, gõ Terminal), dán lệnh này rồi bấm Enter:</p>
+        <pre className="doc-text auth-cmd">bash ~/Library/Application\ Support/TroLyCDN/dat-lai-mat-khau.sh</pre>
+        <p>Terminal hiện tên đăng nhập và mật khẩu mới.</p>
+      </>
+    );
+  } else {
+    steps = (
+      <>
+        <p>Trên máy chủ (VPS) chạy:</p>
+        <pre className="doc-text auth-cmd">bash ~/.tro-ly-cdn/dat-lai-mat-khau.sh</pre>
+      </>
+    );
+  }
+  return (
+    <div className="auth-help small">
+      <strong>Quên mật khẩu?</strong>
+      <p className="muted">Mật khẩu chỉ đặt lại được trên chính máy đang chạy app, để người khác không chiếm được nick Zalo của bạn. Dữ liệu giữ nguyên.</p>
+      {steps}
+    </div>
+  );
+}
 
 export function AuthScreen({ firstRun, onDone }: { firstRun: boolean; onDone: () => void }) {
   const [username, setUsername] = useState("");
@@ -7,6 +54,11 @@ export function AuthScreen({ firstRun, onDone }: { firstRun: boolean; onDone: ()
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [status, setStatus] = useState<Status>({});
+  useEffect(() => {
+    api<Status>("/api/status").then(setStatus).catch(() => undefined);
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -56,6 +108,12 @@ export function AuthScreen({ firstRun, onDone }: { firstRun: boolean; onDone: ()
         <button className="primary" disabled={busy}>
           {busy ? "Đang xử lý…" : firstRun ? "Tạo tài khoản" : "Đăng nhập"}
         </button>
+        {!firstRun && (
+          <button type="button" className="link auth-forgot" aria-expanded={forgot} onClick={() => setForgot((v) => !v)}>
+            Quên mật khẩu?
+          </button>
+        )}
+        {!firstRun && forgot && <ResetHelp status={status} />}
       </form>
     </div>
   );

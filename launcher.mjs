@@ -13,7 +13,7 @@
  * /api/status trả lời đúng số bản trong 90 giây; không được thì quay về bản cũ và chép lại DB đã sao lưu.
  * Không dùng thư viện ngoài: file này phải chạy được với mọi bản.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -163,6 +163,23 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
     if (child && child.exitCode === null) child.kill(sig);
     else process.exit(0);
   });
+}
+
+// Quên mật khẩu: node launcher.mjs --dat-lai-mat-khau [mật khẩu mới] — chạy lệnh đặt lại của bản đang dùng rồi thoát.
+const resetAt = process.argv.indexOf("--dat-lai-mat-khau");
+if (resetAt > 0) {
+  const t = target();
+  const script = path.join(t.dir, "dist", "server", "reset-password.js");
+  if (!fs.existsSync(script)) {
+    console.error("[launcher] Bản này chưa có lệnh đặt lại mật khẩu. Cập nhật app rồi thử lại.");
+    process.exit(1);
+  }
+  const r = spawnSync(process.execPath, [script, ...process.argv.slice(resetAt + 1)], {
+    cwd: t.dir,
+    env: { ...process.env, CDN_DATA_DIR: DATA },
+    stdio: "inherit",
+  });
+  process.exit(r.status ?? 1);
 }
 
 // Lần bật trước bị tắt ngang lúc đang đổi bản: làm nốt.

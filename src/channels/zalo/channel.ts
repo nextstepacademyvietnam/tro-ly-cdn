@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { type GroupChange, memberIdsFromInfo, normalizeGroupEvent } from "./groupEvents.js";
 import fs from "node:fs";
 import path from "node:path";
 import { imageSize } from "image-size";
@@ -43,6 +44,17 @@ export interface ZaloChannelEvents {
   inbound: [InboundEvent, { sentByApp: boolean }];
   typing: [{ threadId: string; senderId: string }];
   birthday: [{ userId: string; displayName: string }];
+  /** Thành viên vào / rời / bị mời ra / bị chặn khỏi một nhóm. */
+  group: [GroupChange];
+}
+
+export interface GroupDetail {
+  id: string;
+  name: string;
+  totalMember: number;
+  memberIds: string[];
+  adminIds: string[];
+  creatorId: string;
 }
 
 /**
@@ -183,6 +195,10 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       const sentByApp = event.isSelf && this.sentIds.has(event.messageId);
       this.emit("inbound", event, { sentByApp });
     });
+    api.listener.on("group_event", (raw) => {
+      const change = normalizeGroupEvent(raw);
+      if (change) this.emit("group", change);
+    });
     api.listener.on("typing", (t) => {
       const threadId = String(t?.threadId ?? "");
       const senderId = String((t as { data?: { uid?: unknown } })?.data?.uid ?? "");
@@ -255,16 +271,70 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
 
   async groups() {
     const api = this.requireApi();
+    const ownId = String(api.getOwnId());
     const all = (await api.getAllGroups()) as { gridVerMap?: Record<string, unknown> };
     const ids = Object.keys(all?.gridVerMap ?? {});
-    const info: Record<string, { name?: string; totalMember?: number }> = {};
+    const info: Record<string, { name?: string; totalMember?: number; adminIds?: string[]; creatorId?: string }> = {};
     for (const batch of chunked(ids, 100)) {
       const res = (await api.getGroupInfo(batch)) as { gridInfoMap?: typeof info };
       Object.assign(info, res?.gridInfoMap ?? {});
     }
-    const list = ids.map((id) => publicGroup(id, info[id]));
+    const list = ids.map((id) => ({
+      ...publicGroup(id, info[id]),
+      isAdmin: String(info[id]?.creatorId ?? "") === ownId || (info[id]?.adminIds ?? []).map(String).includes(ownId),
+    }));
     for (const g of list) this.groupNames.set(g.id, g.name);
     return list.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+  }
+
+  /** Thông tin một nhóm kèm toàn bộ id thành viên (để chụp mốc và đối chiếu). */
+  async groupDetail(groupId: string): Promise<GroupDetail> {
+    const res = (await withTimeout(this.requireApi().getGroupInfo(groupId), 15_000)) as {
+      gridInfoMap?: Record<string, { name?: string; totalMember?: number; memVerList?: string[]; memberIds?: string[]; adminIds?: string[]; creatorId?: string }>;
+    };
+    const g = res?.gridInfoMap?.[groupId];
+    if (!g) throw new Error("Không đọc được nhóm này (nick không còn trong nhóm?)");
+    const detail: GroupDetail = {
+      id: groupId,
+      name: String(g.name ?? ""),
+      totalMember: Number(g.totalMember ?? 0),
+      memberIds: memberIdsFromInfo(g),
+      adminIds: (g.adminIds ?? []).map(String),
+      creatorId: String(g.creatorId ?? ""),
+    };
+    this.groupNames.set(groupId, detail.name);
+    return detail;
+  }
+
+  /** Tên hiển thị của nhiều người (theo lô 50). Ai không đọc được thì bỏ trống. */
+  async memberNames(ids: string[]): Promise<Map<string, string>> {
+    const api = this.requireApi();
+    const out = new Map<string, string>();
+    for (const batch of chunked(ids, 50)) {
+      try {
+        const res = (await withTimeout(api.getGroupMembersInfo(batch), 15_000)) as { profiles?: Record<string, { displayName?: string; zaloName?: string }> };
+        for (const [id, p] of Object.entries(res?.profiles ?? {})) out.set(String(id).split("_")[0]!, String(p?.displayName || p?.zaloName || ""));
+      } catch {
+        /* tên chỉ để hiển thị */
+      }
+    }
+    return out;
+  }
+
+  /** Gửi một tin vào nhóm có tag tên người (lời chào thành viên mới). Tin ngắn, không chia nhỏ. */
+  async sendMention(groupId: string, text: string, mentions: { pos: number; uid: string; len: number }[]): Promise<string | null> {
+    const api = this.requireApi();
+    const decision = this.pacer.reserve(Date.now(), false);
+    if (!decision.ok) throw new Error(decision.reason);
+    await sleep(decision.waitMs);
+    await api.sendTypingEvent(groupId, ZThreadType.Group).catch(() => undefined);
+    await sleep(typingDelayMs(text));
+    const res = (await withTimeout(api.sendMessage({ msg: text, mentions }, groupId, ZThreadType.Group), SEND_TIMEOUT_MS, "Gửi tin")) as {
+      message?: { msgId?: string | number } | null;
+    };
+    const id = String(res?.message?.msgId ?? "");
+    if (id) this.sentIds.add(id);
+    return id || null;
   }
 
   /**

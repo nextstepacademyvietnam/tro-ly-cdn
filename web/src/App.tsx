@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Bell as BellIcon,
   Bot,
+  Bug,
   CalendarClock,
   Check,
   ChevronsUpDown,
@@ -17,25 +18,29 @@ import {
   Sparkles,
   SunMoon,
   UserRound,
+  UsersRound,
 } from "lucide-react";
 import { type Account, type Notice, api, prefs, setCurrentAccount } from "./api";
 import { AccountsPage } from "./pages/AccountsPage";
 import { AuthScreen } from "./pages/AuthScreen";
 import { InboxPage } from "./pages/InboxPage";
+import { GroupsPage } from "./pages/GroupsPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { SchedulesPage } from "./schedules/SchedulePanels";
 import { Popover, initials, timeAndDay } from "./ui";
 import { UpdateBanner, UpdateDialog, useUpdate } from "./update/UpdateDialog";
+import { FeedbackDialog } from "./feedback/FeedbackDialog";
 
 type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string };
-export type Page = "can" | "hop" | "schedules" | "profiles" | "accounts" | "models";
+export type Page = "can" | "hop" | "schedules" | "groups" | "profiles" | "accounts" | "models";
 type Theme = "system" | "light" | "dark";
 
 const TITLES: Record<Page, string> = {
   can: "Cần xử lý",
   hop: "Hộp thư",
   schedules: "Lịch gửi",
+  groups: "Nhóm Zalo",
   profiles: "Tính cách",
   accounts: "Tài khoản Zalo",
   models: "Mô hình AI",
@@ -59,6 +64,9 @@ const stateText = (a?: Account) =>
   a?.state === "connected" ? "Đã kết nối" : a?.state === "waiting_qr" || a?.state === "scanned" ? "Chờ quét mã QR" : a?.state === "reconnecting" ? "Đang nối lại" : "Chưa kết nối";
 
 function savedPage(): Page {
+  // Đường dẫn mở thẳng một mục: ?trang=groups (ưu tiên hơn mục mở lần trước).
+  const fromUrl = new URLSearchParams(location.search).get("trang");
+  if (fromUrl && fromUrl in TITLES) return fromUrl as Page;
   const p = prefs.get("tab");
   if (p === "zalo") return "hop";
   return p && p in TITLES ? (p as Page) : "can";
@@ -73,6 +81,7 @@ export function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const update = useUpdate();
   const [updateOpen, setUpdateOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const refresh = () => api<Status>("/api/status").then(setStatus);
   useEffect(() => {
@@ -203,6 +212,7 @@ export function App() {
           {nav("can", Inbox, current?.needsAction)}
           {nav("hop", MessagesSquare, current?.unreadConversations)}
           {nav("schedules", CalendarClock, current?.activeSchedules)}
+          {nav("groups", UsersRound, current?.trackedGroups)}
           {nav("profiles", Sparkles)}
           <div className="nav-section">Cài đặt</div>
           {nav("accounts", Smartphone)}
@@ -212,6 +222,18 @@ export function App() {
           <div className="user-row">
             <UserRound className="icon" aria-hidden />
             <span className="user-name">{status.user.username}</span>
+            <button
+              type="button"
+              className="icon-only"
+              onClick={() => {
+                setMenuOpen(false);
+                setFeedbackOpen(true);
+              }}
+              aria-label="Báo lỗi, góp ý"
+              title="Báo lỗi, góp ý"
+            >
+              <Bug aria-hidden />
+            </button>
             <button type="button" className="icon-only" onClick={cycleTheme} aria-label="Đổi sáng / tối" title={`Giao diện: ${THEME_LABEL[theme]} (bấm để đổi)`}>
               <SunMoon aria-hidden />
             </button>
@@ -244,6 +266,7 @@ export function App() {
           </div>
         </header>
         <UpdateBanner status={update.status} onOpen={() => setUpdateOpen(true)} onChanged={() => void update.load()} />
+        {feedbackOpen && <FeedbackDialog onClose={() => setFeedbackOpen(false)} version={update.status?.current ?? status.version ?? ""} page={TITLES[page]} />}
         {updateOpen && update.status && (
           <UpdateDialog status={update.status} restarting={update.restarting} onClose={() => setUpdateOpen(false)} onStatus={update.setStatus} />
         )}
@@ -260,6 +283,11 @@ export function App() {
             {page === "schedules" && (
               <div className="page">
                 <SchedulesPage />
+              </div>
+            )}
+            {page === "groups" && (
+              <div className="page">
+                <GroupsPage account={current} onGoAccounts={() => go("accounts")} />
               </div>
             )}
             {page === "profiles" && (

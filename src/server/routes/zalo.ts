@@ -23,7 +23,7 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
   // Tài khoản đang thao tác: header x-cdn-account, mặc định tài khoản đầu tiên.
   app.decorateRequest("accountId", 0);
   app.addHook("preHandler", async (req) => {
-    const raw = Number(req.headers["x-cdn-account"]);
+    const raw = Number(req.headers["x-cdn-account"] ?? (req.query as { account?: string } | undefined)?.account);
     req.accountId = Number.isInteger(raw) && raw > 0 && accounts.row(raw) ? raw : accounts.firstId();
   });
 
@@ -47,6 +47,7 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
         needsAction: new Set([...draftThreads, ...counts.waitingThreads]).size,
         unreadConversations: counts.unread,
         activeSchedules: schedules ? schedules.list({ accountId: a.id, status: "active" }).length : 0,
+        trackedGroups: accounts.trackedGroupCount(a.id),
       };
     }),
   }));

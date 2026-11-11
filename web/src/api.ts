@@ -91,6 +91,7 @@ export interface Account {
   needsAction: number;
   unreadConversations: number;
   activeSchedules: number;
+  trackedGroups: number;
 }
 
 export interface Notice {

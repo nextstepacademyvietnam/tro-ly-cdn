@@ -182,6 +182,18 @@ ping -n 3 127.0.0.1 >nul
   [IO.File]::WriteAllText((Join-Path $Dir "mo-tro-ly-cdn.vbs"), $open, [Text.Encoding]::Unicode)
   [IO.File]::WriteAllText((Join-Path $Dir "tat-tro-ly-cdn.cmd"), ($stop -replace "`r?`n", "`r`n"), (New-Object Text.UTF8Encoding $false))
 
+  $reset = @"
+@echo off
+chcp 65001 >nul
+title Đặt lại mật khẩu Trợ lý CDN
+rem Quên mật khẩu đăng nhập web: đặt lại ngay trên máy này (bộ cài tạo file này).
+set "CDN_DATA_DIR=%~dp0data"
+"%~dp0node\node.exe" "%~dp0launcher.mjs" --dat-lai-mat-khau %*
+echo.
+pause
+"@
+  [IO.File]::WriteAllText((Join-Path $Dir "Dat-lai-mat-khau.cmd"), ($reset -replace "`r?`n", "`r`n"), (New-Object Text.UTF8Encoding $false))
+
   $uninstall = @"
 @echo off
 chcp 65001 >nul
@@ -191,6 +203,7 @@ call "%~dp0tat-tro-ly-cdn.cmd" >nul
 del /q "%USERPROFILE%\Desktop\Trợ lý CDN.lnk" 2>nul
 del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Trợ lý CDN.lnk" 2>nul
 del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tắt Trợ lý CDN.lnk" 2>nul
+del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Đặt lại mật khẩu Trợ lý CDN.lnk" 2>nul
 del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Trợ lý CDN.lnk" 2>nul
 set /p XOA=Xoá cả dữ liệu (hộp thư, tính cách, đăng nhập Zalo)? Gõ XOA rồi Enter để xoá, Enter để giữ:
 set "D=%~dp0"
@@ -198,7 +211,7 @@ cd /d "%TEMP%"
 if /i "%XOA%"=="XOA" (echo Đã gỡ và xoá dữ liệu.) else (echo Đã gỡ. Dữ liệu vẫn giữ ở %D%data)
 pause
 rem File này tự xoá chính nó: "(goto)" thoát khỏi file trước khi xoá để cmd không báo lỗi.
-if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmdir /s /q "%D%node" & rmdir /s /q "%D%versions" & del /q "%D%launcher.mjs" "%D%current.json" "%D%chay-nen.vbs" "%D%mo-tro-ly-cdn.vbs" "%D%tat-tro-ly-cdn.cmd" "%D%go-cai-dat.cmd")
+if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmdir /s /q "%D%node" & rmdir /s /q "%D%versions" & del /q "%D%launcher.mjs" "%D%current.json" "%D%chay-nen.vbs" "%D%mo-tro-ly-cdn.vbs" "%D%tat-tro-ly-cdn.cmd" "%D%Dat-lai-mat-khau.cmd" "%D%go-cai-dat.cmd")
 "@
   [IO.File]::WriteAllText((Join-Path $Dir "go-cai-dat.cmd"), ($uninstall -replace "`r?`n", "`r`n"), (New-Object Text.UTF8Encoding $false))
 
@@ -218,6 +231,7 @@ if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmd
     New-Shortcut (Join-Path ([Environment]::GetFolderPath("Desktop")) "Trợ lý CDN.lnk") $wscript "`"$Dir\mo-tro-ly-cdn.vbs`"" "Mở Trợ lý CDN"
     New-Shortcut (Join-Path $programs "Trợ lý CDN.lnk") $wscript "`"$Dir\mo-tro-ly-cdn.vbs`"" "Mở Trợ lý CDN"
     New-Shortcut (Join-Path $programs "Tắt Trợ lý CDN.lnk") (Join-Path $Dir "tat-tro-ly-cdn.cmd") "" "Tắt Trợ lý CDN"
+    New-Shortcut (Join-Path $programs "Đặt lại mật khẩu Trợ lý CDN.lnk") (Join-Path $Dir "Dat-lai-mat-khau.cmd") "" "Quên mật khẩu đăng nhập Trợ lý CDN"
     New-Shortcut (Join-Path ([Environment]::GetFolderPath("Startup")) "Trợ lý CDN.lnk") $wscript "`"$Dir\chay-nen.vbs`"" "Bật Trợ lý CDN khi mở máy"
     Ok "Đã tạo biểu tượng \"Trợ lý CDN\" trên Màn hình nền và menu Start; app tự chạy khi mở máy."
   } else {

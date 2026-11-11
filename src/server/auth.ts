@@ -63,6 +63,19 @@ export class Auth {
     return row ?? null;
   }
 
+  /**
+   * Quên mật khẩu: đặt mật khẩu mới cho tài khoản quản trị và đăng xuất mọi phiên.
+   * Chỉ gọi từ lệnh chạy trên chính máy cài app (người cầm máy là chủ). Trả về tên đăng nhập.
+   */
+  resetPassword(password: string): string | null {
+    const user = this.db.prepare("SELECT id, username FROM users ORDER BY id LIMIT 1").get() as { id: number; username: string } | undefined;
+    if (!user) return null;
+    validateCredentials(user.username, password);
+    this.db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(password), user.id);
+    this.db.prepare("DELETE FROM sessions").run();
+    return user.username;
+  }
+
   logout(token: string | undefined): void {
     if (token) this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token));
   }
@@ -73,6 +86,13 @@ export function validateCredentials(username: string, password: string): void {
     throw new Error("Tên đăng nhập 3–32 ký tự, chỉ gồm chữ, số, dấu chấm, gạch");
   }
   if (password.length < 8) throw new Error("Mật khẩu cần ít nhất 8 ký tự");
+}
+
+/** Mật khẩu tạm dễ đọc, dễ gõ lại: "song-4821-nui". */
+export function readablePassword(): string {
+  const words = ["song", "nui", "may", "sao", "trang", "bien", "gio", "nang", "lua", "rung", "hoa", "suoi"];
+  const pick = () => words[crypto.randomInt(words.length)];
+  return `${pick()}-${crypto.randomInt(1000, 10000)}-${pick()}`;
 }
 
 /** Chặn dò mật khẩu: tối đa 10 lần sai mỗi 15 phút cho một địa chỉ. */

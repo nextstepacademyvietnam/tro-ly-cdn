@@ -3,6 +3,8 @@ import type { Settings } from "../../server/settings.js";
 import type { ScheduleTarget } from "../../scheduler/store.js";
 import type { Replier, ReplierAccount } from "../../core/replier.js";
 import { ZaloService } from "./service.js";
+import type { GroupChange } from "./groupEvents.js";
+import type { GroupChannel } from "../../groups/tracker.js";
 
 export interface AccountRow {
   id: number;
@@ -21,6 +23,9 @@ export class AccountError extends Error {}
 export class AccountManager {
   private readonly services = new Map<number, ZaloService>();
   private replier: Replier | null = null;
+  /** Bộ theo dõi nhóm nghe sự kiện vào/rời nhóm và lúc tài khoản vừa kết nối (để đối chiếu). */
+  onGroupChange?: (accountId: number, change: GroupChange) => void;
+  onConnected?: (accountId: number) => void;
 
   constructor(
     private readonly db: DB,
@@ -71,14 +76,38 @@ export class AccountManager {
     };
   }
 
+  trackedGroupCount(id: number): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM tracked_groups WHERE account_id = ?").get(id) as { n: number }).n;
+  }
+
+  /** Cái nhìn rút gọn của một tài khoản cho bộ theo dõi nhóm. */
+  groupChannel(id: number): GroupChannel | undefined {
+    const svc = this.services.get(id);
+    if (!svc) return undefined;
+    const ch = svc.channel;
+    return {
+      isConnected: () => svc.isConnected(),
+      ownId: () => ch.getStatus().ownId ?? this.row(id)?.own_id ?? "",
+      groups: () => ch.groups(),
+      groupDetail: (groupId) => ch.groupDetail(groupId),
+      memberNames: (ids) => ch.memberNames(ids),
+      sendMention: (groupId, text, mentions) => ch.sendMention(groupId, text, mentions),
+      sendText: (userId, text) => ch.sendText(userId, "user", text),
+      sendImages: (threadId, type, paths) => ch.sendImages(threadId, type, paths),
+      recordOutbound: (threadId, type, text, msgId, name) => svc.inbox.recordOutbound(threadId, type, text, "ai", msgId, Date.now(), "welcome", name),
+    };
+  }
+
   private attach(id: number): ZaloService {
     const svc = new ZaloService(this.db, this.settings, this.dataDir, id);
     svc.onRecorded = (event, sentByApp) => this.replier?.onInbound(id, event, sentByApp);
     svc.onOwnerSent = (threadId) => this.replier?.ownerReplied(id, threadId);
     svc.channel.on("typing", (t) => this.replier?.onTyping(id, t.threadId, t.senderId));
+    svc.channel.on("group", (change) => this.onGroupChange?.(id, change));
     svc.channel.on("status", (s) => {
       this.log("Zalo", { account: id, state: s.state, error: s.error });
       if (s.state !== "connected" || !s.ownId) return;
+      this.onConnected?.(id);
       const dup = this.list().find((a) => a.id !== id && a.own_id === s.ownId);
       if (dup) {
         // Cùng một nick ở hai nơi sẽ đá nhau liên tục: giữ tài khoản cũ, đăng xuất tài khoản mới.

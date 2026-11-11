@@ -214,6 +214,58 @@ const MIGRATIONS: string[] = [
      created_at INTEGER NOT NULL,
      updated_at INTEGER NOT NULL
    );`,
+  // Theo dõi nhóm Zalo: thành viên, sự kiện vào/rời, luồng chào mừng.
+  `CREATE TABLE tracked_groups (
+     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+     group_id TEXT NOT NULL,
+     name TEXT NOT NULL DEFAULT '',
+     member_count INTEGER NOT NULL DEFAULT 0,
+     tracked_at INTEGER NOT NULL,
+     reconciled_at INTEGER NOT NULL DEFAULT 0,
+     welcome TEXT NOT NULL DEFAULT '{}',
+     PRIMARY KEY (account_id, group_id)
+   );
+   CREATE TABLE group_members (
+     account_id INTEGER NOT NULL,
+     group_id TEXT NOT NULL,
+     user_id TEXT NOT NULL,
+     name TEXT NOT NULL DEFAULT '',
+     present INTEGER NOT NULL DEFAULT 1,
+     first_seen_at INTEGER NOT NULL,
+     joined_at INTEGER,
+     left_at INTEGER,
+     PRIMARY KEY (account_id, group_id, user_id),
+     FOREIGN KEY (account_id, group_id) REFERENCES tracked_groups(account_id, group_id) ON DELETE CASCADE
+   );
+   CREATE TABLE group_events (
+     id INTEGER PRIMARY KEY,
+     account_id INTEGER NOT NULL,
+     group_id TEXT NOT NULL,
+     user_id TEXT NOT NULL,
+     user_name TEXT NOT NULL DEFAULT '',
+     kind TEXT NOT NULL CHECK (kind IN ('join', 'leave', 'remove', 'block')),
+     via TEXT NOT NULL DEFAULT '',
+     actor_id TEXT NOT NULL DEFAULT '',
+     actor_name TEXT NOT NULL DEFAULT '',
+     at INTEGER NOT NULL,
+     FOREIGN KEY (account_id, group_id) REFERENCES tracked_groups(account_id, group_id) ON DELETE CASCADE
+   );
+   CREATE INDEX group_events_time ON group_events (account_id, group_id, at);
+   CREATE TABLE group_welcomes (
+     id INTEGER PRIMARY KEY,
+     account_id INTEGER NOT NULL,
+     group_id TEXT NOT NULL,
+     kind TEXT NOT NULL CHECK (kind IN ('group', 'private')),
+     members TEXT NOT NULL,
+     status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'skipped', 'failed')),
+     due_at INTEGER NOT NULL,
+     done_at INTEGER,
+     text TEXT NOT NULL DEFAULT '',
+     error TEXT NOT NULL DEFAULT '',
+     created_at INTEGER NOT NULL,
+     FOREIGN KEY (account_id, group_id) REFERENCES tracked_groups(account_id, group_id) ON DELETE CASCADE
+   );
+   CREATE INDEX group_welcomes_due ON group_welcomes (status, due_at);`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {
