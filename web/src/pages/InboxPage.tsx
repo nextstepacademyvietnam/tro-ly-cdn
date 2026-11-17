@@ -10,6 +10,7 @@ import {
   PencilLine,
   Search,
   Tag,
+  UserRound,
   WifiOff,
   X,
 } from "lucide-react";
@@ -33,6 +34,9 @@ interface Conversation {
   handoff_reason: string;
   handoff_until: number;
   no_proactive: number;
+  /** Chỉ chat riêng: "nam" | "nu" | "" và nguồn ("zalo" theo hồ sơ, "chu" bạn sửa tay). */
+  gender: "nam" | "nu" | "";
+  genderSource: "zalo" | "chu" | "";
 }
 interface Message {
   id: number;
@@ -45,6 +49,8 @@ interface Message {
 }
 type LabelValue = number | "off" | null;
 type BotFilter = "all" | "none" | "off" | number;
+type GenderFilter = "all" | "nam" | "nu" | "";
+const CALL: Record<string, string> = { nam: "anh", nu: "chị", "": "bạn" };
 
 function usePolling(fn: () => void, ms: number) {
   const ref = useRef(fn);
@@ -130,6 +136,7 @@ export function InboxPage({
   const [showUser, setShowUser] = useState(true);
   const [showGroup, setShowGroup] = useState(true);
   const [botFilter, setBotFilter] = useState<BotFilter>("all");
+  const [genderFilter, setGenderFilter] = useState<GenderFilter>("all");
   const [search, setSearch] = useState("");
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [bulkSchedule, setBulkSchedule] = useState(false);
@@ -165,12 +172,14 @@ export function InboxPage({
       if (c.thread_type === "user" && !showUser) return false;
       if (c.thread_type === "group" && !showGroup) return false;
       if (q && !displayName(c).toLocaleLowerCase("vi").includes(q)) return false;
+      // Lọc giới tính chỉ áp cho chat riêng: chọn Nam / Nữ / Chưa rõ thì ẩn nhóm.
+      if (genderFilter !== "all" && (c.thread_type !== "user" || c.gender !== genderFilter)) return false;
       if (botFilter === "none") return c.bot.kind === "none";
       if (botFilter === "off") return c.bot.kind === "off";
       if (typeof botFilter === "number") return c.bot.kind === "profile" && c.bot.profileId === botFilter;
       return true;
     });
-  }, [conversations, mode, showUser, showGroup, botFilter, search]);
+  }, [conversations, mode, showUser, showGroup, botFilter, genderFilter, search]);
   const actionCount = conversations.filter(needsAction).length;
 
   // Màn rộng: mở sẵn hội thoại đầu danh sách, như wireframe.
@@ -211,7 +220,7 @@ export function InboxPage({
 
   const current = visible.find((c) => c.thread_id === selected);
   const checkedList = conversations.filter((c) => checked.has(c.thread_id));
-  const filterCount = (showUser && showGroup ? 0 : 1) + (botFilter === "all" ? 0 : 1);
+  const filterCount = (showUser && showGroup ? 0 : 1) + (botFilter === "all" ? 0 : 1) + (genderFilter === "all" ? 0 : 1);
 
   let body: React.ReactNode;
   if (!loaded && !loadError) {
@@ -273,6 +282,7 @@ export function InboxPage({
             setShowUser(true);
             setShowGroup(true);
             setBotFilter("all");
+            setGenderFilter("all");
           }}
         >
           Xoá tìm kiếm và bộ lọc
@@ -349,6 +359,28 @@ export function InboxPage({
                     <button key={label} type="button" role="menuitemcheckbox" aria-checked={on} className="menu-item" onClick={() => set(!on)}>
                       <span className="menu-text">{label}</span>
                       {on && <Check className="check" aria-hidden />}
+                    </button>
+                  ))}
+                  <div className="menu-sep" />
+                  <div className="menu-title">Giới tính (chat riêng)</div>
+                  {(
+                    [
+                      ["all", "Tất cả"],
+                      ["nam", "Nam · gọi là anh"],
+                      ["nu", "Nữ · gọi là chị"],
+                      ["", "Chưa rõ · gọi là bạn"],
+                    ] as const
+                  ).map(([v, label]) => (
+                    <button
+                      key={v || "chua-ro"}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={genderFilter === v}
+                      className="menu-item"
+                      onClick={() => setGenderFilter(v)}
+                    >
+                      <span className="menu-text">{label}</span>
+                      {genderFilter === v && <Check className="check" aria-hidden />}
                     </button>
                   ))}
                   <div className="menu-sep" />
@@ -448,6 +480,15 @@ export function InboxPage({
                 <dt>Nhận tin chủ động</dt>
                 <dd>{current.no_proactive ? "Không" : "Có"}</dd>
               </dl>
+              {current.thread_type === "user" && (
+                <CallAs
+                  key={current.thread_id}
+                  conversation={current}
+                  onChanged={(gender, genderSource) =>
+                    setConversations((list) => list.map((c) => (c.thread_id === current.thread_id ? { ...c, gender, genderSource } : c)))
+                  }
+                />
+              )}
             </div>
           </aside>
         </>
@@ -606,6 +647,7 @@ function Thread({
       : bot.kind === "off"
         ? `🚫 ${offTag} · trợ lý không trả lời`
         : "Chưa gắn nhãn · trợ lý im";
+  const callAs = conversation.thread_type === "user" ? ` · gọi là ${CALL[conversation.gender] ?? "bạn"}` : "";
 
   return (
     <div className="ib-thread">
@@ -616,7 +658,7 @@ function Thread({
         <Avatar name={displayName(conversation)} group={conversation.thread_type === "group"} small />
         <div className="ib-thread-title">
           <div className="n">{displayName(conversation)}</div>
-          <div className="s">{sub}</div>
+          <div className="s">{sub}{callAs}</div>
         </div>
         <button type="button" className="icon-only ib-info-btn" onClick={onInfo} aria-label="Nhãn, lịch gửi, thông tin khách" title="Nhãn, lịch gửi, thông tin khách">
           <Info aria-hidden />
@@ -738,5 +780,96 @@ function DraftList({ threadId, canSend, now, onSent, pollKey }: { threadId: stri
       })}
       {error && <div className="notice bad small">{error}</div>}
     </>
+  );
+}
+
+/** Cột Khách: cách gọi khách (anh / chị / bạn). Mặc định theo hồ sơ Zalo; bạn sửa thì giữ mãi. */
+function CallAs({
+  conversation,
+  onChanged,
+}: {
+  conversation: Conversation;
+  onChanged: (gender: Conversation["gender"], source: Conversation["genderSource"]) => void;
+}) {
+  const [error, setError] = useState("");
+  const pick = async (gender: "nam" | "nu" | "" | "auto") => {
+    setError("");
+    try {
+      const r = await api<{ gender: Conversation["gender"]; source: Conversation["genderSource"] }>(
+        `/api/contacts/${encodeURIComponent(conversation.thread_id)}`,
+        { method: "PUT", body: { gender } },
+      );
+      onChanged(r.gender, r.source);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const current = CALL[conversation.gender] ?? "bạn";
+  return (
+    <div className="info-sec">
+      <div className="info-title">Gọi là</div>
+      <Popover
+        trigger={({ toggle }) => (
+          <button type="button" className="label-btn" onClick={toggle}>
+            <UserRound aria-hidden />
+            <span className="t">{current[0]!.toLocaleUpperCase("vi") + current.slice(1)}</span>
+            <ChevronDown aria-hidden />
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            {(
+              [
+                ["nam", "Anh", "Khách là nam"],
+                ["nu", "Chị", "Khách là nữ"],
+                ["", "Bạn", "Chưa rõ giới tính"],
+              ] as const
+            ).map(([g, label, hint]) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitemradio"
+                aria-checked={conversation.gender === g}
+                className="menu-item"
+                onClick={() => {
+                  close();
+                  void pick(g);
+                }}
+              >
+                <span className="menu-text">
+                  <span>{label}</span>
+                  <span className="menu-sub">{hint}</span>
+                </span>
+                {conversation.gender === g && <Check className="check" aria-hidden />}
+              </button>
+            ))}
+            {conversation.genderSource === "chu" && (
+              <>
+                <div className="menu-sep" />
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => {
+                    close();
+                    void pick("auto");
+                  }}
+                >
+                  <span className="menu-text">Theo hồ sơ Zalo</span>
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </Popover>
+      <p className="info-hint">
+        {conversation.genderSource === "chu"
+          ? "Bạn đã chọn tay. Trợ lý, tin chào và lịch gửi đều gọi khách theo cách này."
+          : conversation.gender
+            ? "Theo giới tính trong hồ sơ Zalo của khách. Sai thì chọn lại."
+            : "Hồ sơ Zalo chưa cho biết giới tính nên gọi là bạn. Biết rồi thì chọn lại."}
+      </p>
+      {error && <div className="notice bad small">{error}</div>}
+    </div>
   );
 }

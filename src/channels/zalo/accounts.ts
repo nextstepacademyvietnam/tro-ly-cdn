@@ -73,6 +73,7 @@ export class AccountManager {
       groupName: (threadId) => svc.channel.groupName(threadId),
       sendText: (threadId, type, text) => svc.channel.sendText(threadId, type, text),
       setLabel: (threadId, type, target, exclusive) => svc.channel.setLabel(threadId, type, target, exclusive),
+      salutation: (userId) => svc.contacts.salutation(userId),
     };
   }
 
@@ -91,6 +92,7 @@ export class AccountManager {
       groups: () => ch.groups(),
       groupDetail: (groupId) => ch.groupDetail(groupId),
       memberNames: (ids) => ch.memberNames(ids),
+      genders: (ids) => svc.contacts.ensure(ids),
       sendMention: (groupId, text, mentions) => ch.sendMention(groupId, text, mentions),
       sendText: (userId, text) => ch.sendText(userId, "user", text),
       sendImages: (threadId, type, paths) => ch.sendImages(threadId, type, paths),

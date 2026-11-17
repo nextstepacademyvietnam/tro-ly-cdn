@@ -672,10 +672,11 @@ function MembersTab({ base, from, to, csv, version }: { base: string; from: numb
 }
 
 // ---------- Tab Chào mừng ----------
-const VARS = ["{tên}", "{tên nhóm}", "{số thành viên}", "{người thêm}"];
+// {xưng hô}: anh / chị / bạn theo giới tính hồ sơ Zalo; chào trong nhóm nhiều người cùng lúc thì là "các bạn".
+const VARS = ["{xưng hô}", "{tên}", "{tên nhóm}", "{số thành viên}", "{người thêm}"];
 // Mẫu hiển thị tiếng Việt có dấu; máy chủ dùng biến không dấu.
-const toServer = (t: string) => t.replaceAll("{tên nhóm}", "{ten_nhom}").replaceAll("{số thành viên}", "{so_thanh_vien}").replaceAll("{người thêm}", "{nguoi_them}").replaceAll("{tên}", "{ten}");
-const fromServer = (t: string) => t.replaceAll("{ten_nhom}", "{tên nhóm}").replaceAll("{so_thanh_vien}", "{số thành viên}").replaceAll("{nguoi_them}", "{người thêm}").replaceAll("{ten}", "{tên}");
+const toServer = (t: string) => t.replaceAll("{tên nhóm}", "{ten_nhom}").replaceAll("{số thành viên}", "{so_thanh_vien}").replaceAll("{người thêm}", "{nguoi_them}").replaceAll("{tên}", "{ten}").replaceAll("{Xưng hô}", "{Xung_ho}").replaceAll("{xưng hô}", "{xung_ho}");
+const fromServer = (t: string) => t.replaceAll("{ten_nhom}", "{tên nhóm}").replaceAll("{so_thanh_vien}", "{số thành viên}").replaceAll("{nguoi_them}", "{người thêm}").replaceAll("{ten}", "{tên}").replaceAll("{Xung_ho}", "{Xưng hô}").replaceAll("{xung_ho}", "{xưng hô}");
 const mapCfg = (c: WelcomeConfig, f: (t: string) => string): WelcomeConfig => ({
   ...c,
   group: { ...c.group, templates: c.group.templates.map(f) },

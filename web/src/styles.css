@@ -221,3 +221,8 @@ label.field > span { font-weight: 500; }
 .note-form label.inline input { width: auto; }
 .suggest { display: flex; gap: 8px; align-items: flex-start; padding: 6px; border-radius: 8px; background: var(--surface); }
 .suggest span { flex: 1; }
+
+/* Ô soạn lịch gửi: chèn biến, xem trước */
+.sched-vars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.sched-var { min-height: 28px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; }
+.sched-preview { display: grid; gap: 2px; padding: 8px 12px; border-radius: 8px; background: var(--background); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }

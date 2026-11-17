@@ -21,6 +21,8 @@ export interface GroupChannel {
   groups(): Promise<{ id: string; name: string; memberCount: number; isAdmin: boolean }[]>;
   groupDetail(groupId: string): Promise<GroupDetail>;
   memberNames(ids: string[]): Promise<Map<string, string>>;
+  /** Giới tính của nhiều người ("nam" | "nu" | ""), hỏi Zalo người còn thiếu. Không có thì gọi "bạn". */
+  genders?(ids: string[]): Promise<Map<string, string>>;
   sendMention(groupId: string, text: string, mentions: { pos: number; uid: string; len: number }[]): Promise<string | null>;
   sendText(userId: string, text: string): Promise<string[]>;
   sendImages(threadId: string, type: "user" | "group", paths: string[]): Promise<string[]>;
@@ -356,7 +358,7 @@ export class GroupTracker {
     const g = this.group(accountId, groupId);
     if (!g) throw new Error("Nhóm chưa được theo dõi");
     const c = cfg ? sanitizeWelcome(cfg) : this.welcome(accountId, groupId);
-    const sample = kind === "group" ? [{ id: "1", name: "Lan Anh" }, { id: "2", name: "Minh Tuấn" }] : [{ id: "1", name: "Lan Anh" }];
+    const sample = kind === "group" ? [{ id: "1", name: "Lan Anh", gender: "nu" }, { id: "2", name: "Minh Tuấn", gender: "nam" }] : [{ id: "1", name: "Lan Anh", gender: "nu" }];
     const templates = kind === "group" ? c.group.templates : c.private.templates;
     return templates.map((t) => renderWelcome(t, { members: sample, groupName: g.name, memberCount: g.member_count, adderName: "Thu Thảo" }, kind === "group").text);
   }
@@ -385,8 +387,10 @@ export class GroupTracker {
       if (late) this.finish(w.id, "skipped", now, "", ch?.isConnected() ? "Trợ lý tạm dừng quá lâu" : "Zalo không kết nối quá lâu");
       return; // chờ lượt sau
     }
-    const members = (JSON.parse(w.members) as Member[]).filter((m) => this.isPresent(w.account_id, w.group_id, m.id));
-    if (members.length === 0) return this.finish(w.id, "skipped", now, "", "Người mới đã rời nhóm");
+    const present = (JSON.parse(w.members) as Member[]).filter((m) => this.isPresent(w.account_id, w.group_id, m.id));
+    if (present.length === 0) return this.finish(w.id, "skipped", now, "", "Người mới đã rời nhóm");
+    const genders = (await ch.genders?.(present.map((m) => m.id)).catch(() => undefined)) ?? new Map<string, string>();
+    const members = present.map((m) => ({ ...m, gender: genders.get(m.id) ?? "" }));
     const { text, mentions } = renderWelcome(
       pickTemplate(part.templates, this.rand),
       { members, groupName: g.name, memberCount: g.member_count, adderName: members[0]?.actorName ?? "" },

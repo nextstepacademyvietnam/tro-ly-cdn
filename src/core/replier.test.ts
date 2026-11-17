@@ -98,6 +98,7 @@ function setup(opts: { reply?: string | Error; sendMode?: "draft" | "auto"; conn
     setLabel: async (thread, _t, target) => {
       labelWrites.push({ thread, target });
     },
+    salutation: (userId) => (userId === "u1" ? "chị" : "bạn"),
   };
   const engine: Engine = {
     kind: "codex",
@@ -123,6 +124,8 @@ describe("luồng trả lời", () => {
     expect(t.calls[0].system).toContain('vai trò "CSKH"');
     expect(t.calls[0].system).toContain("Xưng em, gọi anh/chị.");
     expect(t.calls[0].system).toContain("chị Thảo");
+    // Người nhắn u1 có giới tính nữ trong hồ sơ → khung dặn gọi là "chị".
+    expect(t.calls[0].system).toContain('là "chị", xưng em');
     expect(t.calls[0].messages.at(-1)).toEqual({ role: "user", content: "Khoá học bao nhiêu tiền?" });
     expect(t.inbox.messages("u1").at(-1)).toMatchObject({ direction: "out", source: "ai" });
   });

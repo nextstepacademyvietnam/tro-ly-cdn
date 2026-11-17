@@ -5,6 +5,7 @@ import path from "node:path";
 import { imageSize } from "image-size";
 import { Zalo, ThreadType as ZThreadType, LoginQRCallbackEventType, type API, type Credentials } from "zca-js";
 import type { Settings } from "../../server/settings.js";
+import { type Gender, genderFromZalo } from "../../core/contacts.js";
 import {
   type InboundEvent,
   type ThreadType,
@@ -304,6 +305,28 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     };
     this.groupNames.set(groupId, detail.name);
     return detail;
+  }
+
+  /**
+   * Hồ sơ nhiều người (tên + giới tính) qua getUserInfo, theo lô 50. getGroupMembersInfo không có giới tính
+   * nên phải hỏi riêng. Lô nào lỗi thì bỏ qua; người không có trong kết quả là Zalo không trả hồ sơ.
+   */
+  async userProfiles(ids: string[]): Promise<Map<string, { name: string; gender: Gender }>> {
+    const api = this.requireApi();
+    const out = new Map<string, { name: string; gender: Gender }>();
+    for (const batch of chunked(ids, 50)) {
+      try {
+        const res = (await withTimeout(api.getUserInfo(batch), 15_000)) as {
+          changed_profiles?: Record<string, { displayName?: string; zaloName?: string; gender?: unknown }>;
+        };
+        for (const [id, p] of Object.entries(res?.changed_profiles ?? {})) {
+          out.set(String(id).split("_")[0]!, { name: String(p?.displayName || p?.zaloName || ""), gender: genderFromZalo(p?.gender) });
+        }
+      } catch {
+        /* giới tính chỉ để xưng hô */
+      }
+    }
+    return out;
   }
 
   /** Tên hiển thị của nhiều người (theo lô 50). Ai không đọc được thì bỏ trống. */

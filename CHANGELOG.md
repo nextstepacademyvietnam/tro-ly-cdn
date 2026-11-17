@@ -10,6 +10,10 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 ## [Chưa phát hành]
 
 ### Mới
+- Trợ lý gọi khách đúng **anh**, **chị** theo giới tính trong hồ sơ Zalo của khách; chưa rõ giới tính thì gọi **bạn**. App không đoán giới tính từ tên.
+- Hộp thư, cột **Khách** có thêm dòng **Gọi là**: xem trợ lý đang gọi khách thế nào, sai thì chọn lại (anh / chị / bạn), lựa chọn của bạn được giữ mãi.
+- Bộ lọc Hộp thư thêm **Giới tính** (Nam, Nữ, Chưa rõ), chọn nhiều để lên lịch gửi riêng cho từng nhóm khách.
+- Tin chào thành viên nhóm và lịch gửi tin có thêm biến **{xưng hô}** (và **{Xưng hô}** viết hoa đầu câu), **{tên}**: mỗi người nhận một tin gọi đúng anh, chị, bạn và đúng tên mình. Ô soạn lịch gửi có nút chèn biến và xem trước tin.
 - Menu chia nhóm **Zalo / Cài đặt**; ô chuyển tài khoản Zalo nằm ngay trong nhóm Zalo.
 
 ## [0.2.1] - 2026-11-11

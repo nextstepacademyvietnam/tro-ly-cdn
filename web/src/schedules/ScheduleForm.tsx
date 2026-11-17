@@ -56,6 +56,38 @@ export function ScheduleForm({
   const [busy, setBusy] = useState<"" | "save" | "ai" | "upload">("");
   const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const [preview, setPreview] = useState<{ name: string; text: string } | null>(null);
+
+  // Xem trước tin cho người nhận đầu tiên khi tin có biến {xưng hô}, {tên}.
+  const firstTarget = targets[0];
+  useEffect(() => {
+    if (!firstTarget || !hasVars(text)) return setPreview(null);
+    let alive = true;
+    const t = setTimeout(async () => {
+      let gender = "";
+      if (firstTarget.threadType === "user") {
+        const r = await api<{ contacts: Record<string, { gender: string }> }>(`/api/contacts?ids=${encodeURIComponent(firstTarget.threadId)}`).catch(() => null);
+        gender = r?.contacts[firstTarget.threadId]?.gender ?? "";
+      }
+      if (alive) setPreview({ name: firstTarget.name, text: renderVars(text, firstTarget.threadType === "group", firstTarget.name, gender) });
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [text, firstTarget?.threadId, firstTarget?.name, firstTarget?.threadType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const insertVar = (v: string) => {
+    const el = textRef.current;
+    const at = el ? el.selectionStart : text.length;
+    const end = el ? el.selectionEnd : text.length;
+    setText(text.slice(0, at) + v + text.slice(end));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(at + v.length, at + v.length);
+    });
+  };
 
   useEffect(() => {
     // Ứng viên người nhận: hội thoại trong hộp thư + toàn bộ nhóm Zalo (nếu đang kết nối).
@@ -194,7 +226,22 @@ export function ScheduleForm({
 
           <div className="stack-sm">
             <span className="field-label">Nội dung</span>
-            <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nội dung tin nhắn sẽ gửi đúng như thế này" />
+            <textarea ref={textRef} rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nội dung tin nhắn. VD: Chào {xưng hô} {tên}, tối nay 20h lớp mình học nhé!" />
+            <div className="sched-vars">
+              <span className="muted">Chèn:</span>
+              {VARS.map(([v, hint]) => (
+                <button key={v} type="button" className="sched-var" title={hint} onClick={() => insertVar(v)}>
+                  {v}
+                </button>
+              ))}
+              <span className="muted small">Mỗi người nhận một tin riêng: anh / chị / bạn theo giới tính hồ sơ Zalo, nhóm thì là "mọi người".</span>
+            </div>
+            {preview && (
+              <div className="sched-preview">
+                <span className="muted small">Xem trước cho {preview.name || "người nhận đầu tiên"}:</span>
+                <div>{preview.text}</div>
+              </div>
+            )}
             <div className="row">
               <input
                 className="grow"
@@ -326,4 +373,18 @@ export function ScheduleForm({
       </div>
     </div>
   );
+}
+
+const VARS: [string, string][] = [
+  ["{xưng hô}", "anh / chị / bạn theo giới tính (nhóm: mọi người)"],
+  ["{Xưng hô}", "Như trên, viết hoa chữ đầu — dùng ở đầu câu"],
+  ["{tên}", "Tên người nhận (nhóm: tên nhóm)"],
+];
+const VAR_RE = /\{(xưng hô|Xưng hô|xung_ho|Xung_ho|tên|ten)\}/g;
+const hasVars = (t: string) => new RegExp(VAR_RE.source).test(t);
+/** Giống src/scheduler/render.ts (máy chủ điền thật lúc gửi); ở đây chỉ để xem trước. */
+function renderVars(t: string, isGroup: boolean, name: string, gender: string): string {
+  const x = isGroup ? "mọi người" : gender === "nam" ? "anh" : gender === "nu" ? "chị" : "bạn";
+  const n = name.trim() || (isGroup ? "nhóm" : x);
+  return t.replace(VAR_RE, (_, k: string) => (k === "tên" || k === "ten" ? n : k[0] === "X" ? x[0]!.toLocaleUpperCase("vi") + x.slice(1) : x));
 }

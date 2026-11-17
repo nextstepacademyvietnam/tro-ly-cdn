@@ -1,3 +1,5 @@
+import { capitalize, salutationOf } from "../core/contacts.js";
+
 /**
  * Phần tính toán thuần của tính năng nhóm (không đụng DB hay Zalo): cấu hình lời chào,
  * dựng tin có tag tên, xếp giờ gửi lời chào riêng, đối chiếu danh sách, thống kê.
@@ -26,7 +28,7 @@ export const DEFAULT_WELCOME: WelcomeConfig = {
   },
   private: {
     enabled: false,
-    templates: ["Chào {ten}, cảm ơn bạn đã tham gia {ten_nhom}. Có gì cần hỗ trợ cứ nhắn mình nhé!"],
+    templates: ["Chào {xung_ho} {ten}, cảm ơn {xung_ho} đã tham gia {ten_nhom}. Có gì cần hỗ trợ {xung_ho} cứ nhắn mình nhé!"],
     imageIds: [],
     minDelayMin: 2,
     maxDelayMin: 6,
@@ -82,7 +84,8 @@ export function sanitizeWelcome(input: unknown): WelcomeConfig {
 // ---------- Dựng tin ----------
 
 export interface WelcomeContext {
-  members: { id: string; name: string }[];
+  /** gender: "nam" | "nu" | "" (từ hồ sơ Zalo / chủ sửa tay), để điền {xung_ho}. */
+  members: { id: string; name: string; gender?: string }[];
   groupName: string;
   memberCount: number;
   adderName: string;
@@ -94,7 +97,11 @@ export interface WelcomeContext {
  */
 export function renderWelcome(template: string, ctx: WelcomeContext, withMentions: boolean): { text: string; mentions: { pos: number; uid: string; len: number }[] } {
   const names = ctx.members.map((m) => (withMentions ? `@${m.name || "bạn mới"}` : m.name || "bạn"));
+  // {xung_ho}: một người → anh / chị / bạn theo giới tính; nhiều người cùng lúc → "các bạn".
+  const xungHo = ctx.members.length === 1 ? salutationOf(ctx.members[0]!.gender) : "các bạn";
   const vars: Record<string, string> = {
+    xung_ho: xungHo,
+    Xung_ho: capitalize(xungHo),
     ten_nhom: ctx.groupName || "nhóm",
     so_thanh_vien: ctx.memberCount ? String(ctx.memberCount) : "",
     nguoi_them: ctx.adderName,
@@ -102,8 +109,8 @@ export function renderWelcome(template: string, ctx: WelcomeContext, withMention
   const mentions: { pos: number; uid: string; len: number }[] = [];
   let text = "";
   // Đi từng đoạn để tính đúng vị trí tag sau khi các biến khác đã được thay.
-  for (const part of template.split(/(\{[a-z_]+\})/g)) {
-    const key = part.match(/^\{([a-z_]+)\}$/)?.[1];
+  for (const part of template.split(/(\{[A-Za-z_]+\})/g)) {
+    const key = part.match(/^\{([A-Za-z_]+)\}$/)?.[1];
     if (key === "ten") {
       names.forEach((n, i) => {
         if (i > 0) text += i === names.length - 1 ? " và " : ", ";
