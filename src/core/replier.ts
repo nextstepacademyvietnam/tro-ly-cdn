@@ -17,6 +17,8 @@ export interface ReplierAccount {
   sendText(threadId: string, type: ThreadType, text: string): Promise<string[]>;
   /** Ghi nhãn thật trong Zalo (null = gỡ các nhãn trong `exclusive`). */
   setLabel(threadId: string, type: ThreadType, target: string | null, exclusive: string[]): Promise<unknown>;
+  /** Cách gọi một người (anh / chị / bạn) theo giới tính đã lưu. */
+  salutation(userId: string): "anh" | "chị" | "bạn";
 }
 
 export interface ReplierOptions {
@@ -183,6 +185,7 @@ export class Replier {
         groupName: isGroup ? (await acc.groupName(event.threadId)) || who : "",
         personName: event.displayName,
         sendMode: profile.sendMode,
+        salutation: acc.salutation(event.senderId),
       }) +
       "\n\n" +
       this.profiles.compose(profile.id, undefined, this.now());

@@ -117,6 +117,35 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
     return { connected: info !== null, labels: (info ?? []).map((l) => l.name), details: info ?? [] };
   });
 
+  // ---------- Cách gọi khách (anh / chị / bạn) ----------
+  // Tra nhiều người một lúc (ô soạn lịch gửi xem trước tin cho người nhận).
+  app.get<{ Querystring: { ids?: string } }>("/api/contacts", async (req) => {
+    const s = svc(req);
+    const ids = String(req.query.ids ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 200);
+    const out: Record<string, { gender: string; source: string; name: string }> = {};
+    for (const id of ids) {
+      const c = s.contacts.get(id);
+      out[id] = { gender: c?.gender ?? "", source: c?.source ?? "", name: c?.name ?? "" };
+    }
+    return { contacts: out };
+  });
+
+  // Chủ sửa tay: "nam" | "nu" | "" (gọi là bạn) giữ mãi; "auto" trả về theo hồ sơ Zalo.
+  app.put<{ Params: { id: string }; Body: { gender?: string } }>("/api/contacts/:id", async (req, reply) => {
+    const s = svc(req);
+    const g = req.body?.gender;
+    if (g === "auto") {
+      s.contacts.clearManual(req.params.id);
+      await s.contacts.ensure([req.params.id]).catch(() => undefined);
+    } else if (g === "nam" || g === "nu" || g === "") {
+      s.contacts.setManual(req.params.id, g);
+    } else {
+      return reply.code(400).send({ error: "Giới tính phải là nam, nu, rỗng (chưa rõ) hoặc auto" });
+    }
+    const c = s.contacts.get(req.params.id);
+    return { gender: c?.gender ?? "", source: c?.source ?? "" };
+  });
+
   // ---------- Hộp thư ----------
   app.get("/api/zalo/conversations", async (req) => {
     const s = svc(req);
@@ -136,6 +165,9 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
           pendingDrafts: pending.get(c.thread_id) ?? 0,
           draftSince: since.get(c.thread_id) ?? 0,
           firstMessageAt: first.get(c.thread_id) ?? 0,
+          // Cách gọi khách (chỉ chat riêng): giới tính hồ sơ Zalo hoặc chủ sửa tay.
+          gender: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.gender ?? "") : "",
+          genderSource: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.source ?? "") : "",
           waitingHuman: c.handoff_until > now,
           bot:
             r.kind === "profile"

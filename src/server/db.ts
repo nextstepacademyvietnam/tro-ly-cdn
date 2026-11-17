@@ -307,6 +307,16 @@ const MIGRATIONS: string[] = [
      message TEXT NOT NULL DEFAULT '',
      at INTEGER NOT NULL
    );`,
+  // Giới tính khách (từ hồ sơ Zalo hoặc chủ sửa tay) để gọi anh / chị / bạn.
+  `CREATE TABLE contacts (
+     account_id INTEGER NOT NULL,
+     user_id TEXT NOT NULL,
+     name TEXT NOT NULL DEFAULT '',
+     gender TEXT NOT NULL DEFAULT '' CHECK (gender IN ('nam', 'nu', '')),
+     gender_source TEXT NOT NULL DEFAULT 'zalo' CHECK (gender_source IN ('zalo', 'chu')),
+     fetched_at INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (account_id, user_id)
+   );`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {
