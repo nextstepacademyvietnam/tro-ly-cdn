@@ -229,3 +229,13 @@
 .grp-friend .grp-label { margin-bottom: 2px; }
 .grp-friend textarea { resize: none; }
 .grp-thumb-busy { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.2; }
+
+/* Tính cách cho thành viên khi nhắn riêng (dưới tên nhóm) */
+.grp-persona { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 14px 16px; }
+.grp-persona-text { flex: 1 1 280px; min-width: 0; }
+.grp-persona-text .t { font-weight: 600; font-size: 14px; }
+.grp-persona .pop-wrap { flex: 0 1 300px; min-width: 220px; }
+.grp-persona-btn { width: 100%; justify-content: flex-start; gap: 8px; height: 40px; padding: 0 12px; }
+.grp-persona-btn > svg { color: var(--muted); }
+.grp-persona-btn .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.grp-persona > .notice { flex-basis: 100%; }

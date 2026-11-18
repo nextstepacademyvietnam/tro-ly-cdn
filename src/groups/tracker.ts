@@ -49,6 +49,15 @@ export interface TrackedGroup {
   tracked_at: number;
   reconciled_at: number;
   welcome: string;
+  /** Tính cách gắn cho thành viên khi họ nhắn riêng (null = không). */
+  profile_id: number | null;
+}
+
+/** Thành viên nhóm nhắn riêng → tính cách của nhóm đó (nhóm vào gần nhất nếu ở nhiều nhóm). */
+export interface GroupPersonaHit {
+  profileId: number;
+  groupId: string;
+  groupName: string;
 }
 
 export interface WelcomeRow {
@@ -134,6 +143,42 @@ export class GroupTracker {
   }
 
   /** Thôi theo dõi: xoá luôn số liệu và hàng đợi lời chào của nhóm. */
+  // ---------- Tính cách theo nhóm ----------
+
+  /** Chọn tính cách cho thành viên nhóm khi họ nhắn riêng (null = tắt). */
+  setPersona(accountId: number, groupId: string, profileId: number | null) {
+    if (!this.group(accountId, groupId)) throw new Error("Nhóm chưa được theo dõi");
+    this.db.prepare("UPDATE tracked_groups SET profile_id = ? WHERE account_id = ? AND group_id = ?").run(profileId, accountId, groupId);
+  }
+
+  /**
+   * Người này đang ở một nhóm có chọn tính cách, và app chưa từng gắn nhãn tự động cho họ → tính cách của nhóm
+   * (ở nhiều nhóm thì nhóm họ vào gần nhất). Đã gắn một lần rồi thì null: chủ gỡ nhãn thì không gắn lại.
+   */
+  personaForMember(accountId: number, userId: string): GroupPersonaHit | null {
+    if (this.db.prepare("SELECT 1 FROM group_persona_applied WHERE account_id = ? AND thread_id = ?").get(accountId, userId)) return null;
+    const r = this.db
+      .prepare(
+        `SELECT g.profile_id, g.group_id, g.name FROM tracked_groups g
+         JOIN group_members m ON m.account_id = g.account_id AND m.group_id = g.group_id
+         WHERE g.account_id = ? AND m.user_id = ? AND m.present = 1 AND g.profile_id IS NOT NULL
+         ORDER BY COALESCE(m.joined_at, m.first_seen_at) DESC LIMIT 1`,
+      )
+      .get(accountId, userId) as { profile_id: number; group_id: string; name: string } | undefined;
+    return r ? { profileId: Number(r.profile_id), groupId: r.group_id, groupName: r.name } : null;
+  }
+
+  markPersonaApplied(accountId: number, userId: string, hit: GroupPersonaHit, now = Date.now()) {
+    this.db
+      .prepare("INSERT OR REPLACE INTO group_persona_applied (account_id, thread_id, profile_id, group_id, at) VALUES (?, ?, ?, ?, ?)")
+      .run(accountId, userId, hit.profileId, hit.groupId, now);
+  }
+
+  /** Số người app đã tự gắn nhãn tính cách qua nhóm này. */
+  personaAppliedCount(accountId: number, groupId: string): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM group_persona_applied WHERE account_id = ? AND group_id = ?").get(accountId, groupId) as { n: number }).n;
+  }
+
   untrack(accountId: number, groupId: string) {
     this.db.prepare("DELETE FROM tracked_groups WHERE account_id = ? AND group_id = ?").run(accountId, groupId);
     this.admins.delete(`${accountId}:${groupId}`);

@@ -354,6 +354,17 @@ const MIGRATIONS: string[] = [
    ALTER TABLE profiles ADD COLUMN care_enabled INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE profiles ADD COLUMN care_rules TEXT NOT NULL DEFAULT '';
    ALTER TABLE profiles ADD COLUMN care_max_per_day INTEGER NOT NULL DEFAULT 20;`,
+  // Tính cách theo nhóm: thành viên nhóm nhắn riêng mà chưa có nhãn trợ lý thì gắn nhãn tính cách của nhóm.
+  // Ghi lại người đã gắn để chủ gỡ nhãn rồi thì không gắn lại.
+  `ALTER TABLE tracked_groups ADD COLUMN profile_id INTEGER;
+   CREATE TABLE group_persona_applied (
+     account_id INTEGER NOT NULL,
+     thread_id TEXT NOT NULL,
+     profile_id INTEGER NOT NULL,
+     group_id TEXT NOT NULL,
+     at INTEGER NOT NULL,
+     PRIMARY KEY (account_id, thread_id)
+   );`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

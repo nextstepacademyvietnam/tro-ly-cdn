@@ -3,6 +3,7 @@ import {
   Ban,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronRight,
   Download,
   HandHeart,
@@ -11,6 +12,7 @@ import {
   Plus,
   RefreshCw,
   ScanSearch,
+  Sparkles,
   Search,
   TriangleAlert,
   UserMinus,
@@ -19,7 +21,7 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { type Account, api, getCurrentAccount, uploadImage } from "../api";
+import { type Account, type Profile, api, getCurrentAccount, uploadImage } from "../api";
 import { Popover } from "../ui";
 
 // ---------- Kiểu dữ liệu (khớp src/server/routes/groups.ts) ----------
@@ -32,6 +34,10 @@ interface GroupSummary {
   joins7d: number;
   leaves7d: number;
   welcomeOn: boolean;
+  /** Tính cách gắn cho thành viên khi họ nhắn riêng (null = không). */
+  profileId: number | null;
+  /** Số thành viên app đã tự gắn nhãn tính cách qua nhóm này. */
+  personaApplied: number;
 }
 interface ScanGroup {
   id: string;
@@ -411,6 +417,7 @@ function GroupDetail({ group, connected, onBack, onChanged }: { group: GroupSumm
         </div>
       </div>
       {msg && <div className="notice ok small">{msg}</div>}
+      <GroupPersona group={group} onChanged={onChanged} />
       <div className="utabs" role="tablist">
         {(
           [
@@ -1000,6 +1007,100 @@ function WelcomeTab({ base, onSaved }: { base: string; onSaved: () => void }) {
           })}
         </ul>
       </div>
+    </div>
+  );
+}
+
+// ---------- Tính cách cho thành viên khi nhắn riêng ----------
+/**
+ * Chọn tính cách cho thành viên nhóm: ai trong nhóm nhắn riêng mà chưa có nhãn trợ lý thì app gắn nhãn Zalo thật
+ * của tính cách này, trợ lý lo luôn. Không đè nhãn có sẵn; người bạn đã gỡ nhãn thì không gắn lại.
+ */
+function GroupPersona({ group, onChanged }: { group: GroupSummary; onChanged: () => void }) {
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<{ profiles: Profile[] }>("/api/profiles")
+      .then((r) => setProfiles(r.profiles))
+      .catch(() => setProfiles([]));
+  }, []);
+  const usable = (profiles ?? []).filter((p) => p.tag && p.applies !== "group");
+  const current = (profiles ?? []).find((p) => p.id === group.profileId);
+  const choose = async (profileId: number | null) => {
+    setError("");
+    try {
+      await api(`/api/groups/${encodeURIComponent(group.id)}/persona`, { method: "PUT", body: { profileId } });
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  return (
+    <div className="card grp-persona">
+      <div className="grp-persona-text">
+        <div className="t">Thành viên nhắn riêng</div>
+        <p className="small muted">
+          {current
+            ? `Ai trong nhóm nhắn riêng mà chưa có nhãn trợ lý sẽ được gắn nhãn "${current.tag}" trong Zalo để trợ lý ${current.name} lo.`
+            : "Chọn một tính cách: ai trong nhóm nhắn riêng mà chưa có nhãn trợ lý sẽ được gắn nhãn của tính cách đó, trợ lý trả lời theo tính cách ấy."}
+          {group.personaApplied > 0 && ` Đã gắn cho ${group.personaApplied} người.`}
+        </p>
+      </div>
+      <Popover
+        align="end"
+        trigger={({ toggle }) => (
+          <button type="button" className="grp-persona-btn" onClick={toggle} disabled={profiles === null}>
+            <Sparkles aria-hidden />
+            <span className="grow">{current ? `${current.name} · 🏷 ${current.tag}` : "Chưa chọn tính cách"}</span>
+            <ChevronDown aria-hidden />
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            <div className="menu-title">Tính cách cho thành viên nhắn riêng</div>
+            {usable.length === 0 && <p className="pop-body small muted">Chưa có tính cách nào có nhãn dùng cho chat riêng. Tạo ở trang Tính cách.</p>}
+            {usable.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="menu-item"
+                role="menuitemradio"
+                aria-checked={p.id === group.profileId}
+                onClick={() => {
+                  close();
+                  void choose(p.id);
+                }}
+              >
+                <span className="menu-text">
+                  <span>{p.name}</span>
+                  <span className="menu-sub">
+                    🏷 {p.tag} · {p.sendMode === "auto" ? "Tự gửi" : "Soạn nháp"}
+                    {p.care?.enabled ? " · có chăm sóc chủ động" : ""}
+                  </span>
+                </span>
+                {p.id === group.profileId && <Check className="check" aria-hidden />}
+              </button>
+            ))}
+            {group.profileId !== null && (
+              <>
+                <div className="menu-sep" />
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => {
+                    close();
+                    void choose(null);
+                  }}
+                >
+                  <span className="menu-text">Không gắn tính cách</span>
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </Popover>
+      {error && <div className="notice bad small">{error}</div>}
     </div>
   );
 }

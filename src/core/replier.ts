@@ -2,7 +2,7 @@ import type { Inbox } from "../channels/zalo/inbox.js";
 import { type InboundEvent, MessageBatcher, type ThreadType, isOwnerCommandChannel } from "../channels/zalo/protocol.js";
 import type { ChatMessage, Engine } from "../engines/index.js";
 import type { AssistantStore, Draft } from "./assistantStore.js";
-import type { Profile, ProfileStore } from "./profiles.js";
+import { type Profile, type ProfileStore, resolveProfile } from "./profiles.js";
 import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply } from "./replyPolicy.js";
 
 /** Những gì bộ trả lời cần từ một tài khoản Zalo (tách ra để test không cần Zalo thật). */
@@ -45,6 +45,14 @@ export class Replier {
   private readonly log: (msg: string, extra?: object) => void;
   /** Bộ chăm sóc khách gắn vào sau khi tạo (tránh vòng phụ thuộc lúc khởi tạo). */
   onDraftSent: ((draft: Draft) => void) | null = null;
+  /**
+   * Tính cách theo nhóm Zalo (bộ theo dõi nhóm gắn vào): khách nhắn riêng là thành viên một nhóm có chọn tính cách
+   * và hội thoại chưa có nhãn trợ lý → trả tính cách đó để gắn nhãn; `applied` ghi lại đã gắn.
+   */
+  groupPersona: {
+    find(accountId: number, userId: string): { profileId: number; groupId: string; groupName: string } | null;
+    applied(accountId: number, userId: string, hit: { profileId: number; groupId: string; groupName: string }): void;
+  } | null = null;
 
   constructor(
     private readonly profiles: ProfileStore,
@@ -101,6 +109,36 @@ export class Replier {
     return next;
   }
 
+  /**
+   * Khách nhắn riêng chưa có nhãn trợ lý, là thành viên nhóm có chọn tính cách → gắn nhãn Zalo thật của tính cách đó.
+   * Không đè nhãn có sẵn (kể cả "Không bot" hay gắn trên web); chỉ gắn khi đọc được nhãn Zalo. Trả true nếu đã gắn.
+   */
+  private async applyGroupPersona(
+    acc: ReplierAccount,
+    conv: NonNullable<ReturnType<Inbox["conversation"]>>,
+    event: InboundEvent,
+    profiles: Profile[],
+    labels: unknown[] | null,
+  ): Promise<boolean> {
+    if (!this.groupPersona || !labels || conv.thread_type !== "user" || event.isSelf) return false;
+    const offTag = this.profiles.offTag(acc.accountId);
+    if (resolveProfile(conv, profiles, labels, offTag).kind !== "none") return false;
+    const hit = this.groupPersona.find(acc.accountId, event.threadId);
+    if (!hit) return false;
+    const p = profiles.find((x) => x.id === hit.profileId);
+    if (!p?.tag || p.applies === "group") return false;
+    try {
+      await acc.setLabel(event.threadId, "user", p.tag, [...profiles.map((x) => x.tag).filter(Boolean), offTag]);
+    } catch (err) {
+      this.log("Không gắn được nhãn tính cách theo nhóm", { thread: event.threadId, err: (err as Error).message });
+      return false;
+    }
+    this.groupPersona.applied(acc.accountId, event.threadId, hit);
+    const who = conv.name || event.displayName || "Khách";
+    this.store.notify(acc.accountId, "draft", `${who} (thành viên nhóm "${hit.groupName}") nhắn riêng — đã gắn nhãn "${p.tag}" để trợ lý ${p.name} lo.`, event.threadId);
+    return true;
+  }
+
   /** Xử lý một lượt (đã gom). Công khai để test. */
   async process(accountId: number, event: InboundEvent): Promise<void> {
     const acc = this.account(accountId);
@@ -108,7 +146,8 @@ export class Replier {
     const conv = acc.inbox.conversation(event.threadId);
     if (!conv) return;
     const profiles = this.profiles.list(accountId);
-    const labels = await acc.labels();
+    let labels = await acc.labels();
+    if (await this.applyGroupPersona(acc, conv, event, profiles, labels)) labels = await acc.labels();
     const d = decide({
       event,
       conv,

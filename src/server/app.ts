@@ -244,6 +244,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
+  replier.groupPersona = {
+    find: (accountId, userId) => groups.personaForMember(accountId, userId),
+    applied: (accountId, userId, hit) => groups.markPersonaApplied(accountId, userId, hit),
+  };
   accounts.onGroupChange = (id, change) => void groups.onChange(id, change).catch((err) => app.log.error({ err }, "Lỗi ghi sự kiện nhóm"));
   // Vừa kết nối: đối chiếu để bắt người vào/rời lúc app tắt (chờ chút cho kết nối ổn định).
   accounts.onConnected = (id) => void setTimeout(() => void groups.reconcile(id).catch(() => undefined), 10_000).unref();

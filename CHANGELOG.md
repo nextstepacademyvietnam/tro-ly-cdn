@@ -13,6 +13,7 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 - **Chăm sóc khách chủ động**: bật trong trang **Tính cách**. Với mỗi khách chat riêng gắn nhãn tính cách đó, trợ lý đọc lại hội thoại, ghi **hồ sơ khách** (thông tin, những gì đã trao đổi, nhu cầu, giai đoạn) và đặt **lịch chăm sóc** tiếp theo: bao lâu một lần, ngày nào, lần tới cần làm gì, kèm lý do. Tới lịch, trợ lý **soạn sẵn tin chăm sóc** vào mục Cần xử lý để bạn duyệt rồi gửi, không tự gửi.
 - Hộp thư, cột thông tin có thêm mục **Chăm sóc**: xem và sửa hồ sơ khách, đổi lịch (khoá để AI không tự đổi), tạm dừng, phân tích lại, xem lịch sử chăm sóc. Menu có thêm trang **Chăm sóc**: khách tới lượt hôm nay, sắp tới, tạm dừng, đã dừng.
 - Trợ lý tự dừng chăm sóc người không phải khách (người nhà, nội bộ) và khách xin không nhận tin; không nhắn trong giờ yên lặng 21:30–07:30.
+- **Nhóm Zalo → Thành viên nhắn riêng**: chọn một tính cách cho nhóm; ai trong nhóm nhắn riêng mà chưa có nhãn trợ lý sẽ được tự gắn nhãn Zalo của tính cách đó, trợ lý trả lời (và chăm sóc, nếu tính cách bật) luôn. Không đè nhãn có sẵn; người bạn đã gỡ nhãn thì không gắn lại.
 - Chào riêng thành viên mới trong nhóm có thể **gửi kèm lời mời kết bạn** (bật / tắt được), người chặn tin từ người lạ vẫn nhận được lời mời.
 - Trợ lý gọi khách đúng **anh**, **chị** theo giới tính trong hồ sơ Zalo của khách; chưa rõ giới tính thì gọi **bạn**. App không đoán giới tính từ tên.
 - Hộp thư, cột **Khách** có thêm dòng **Gọi là**: xem trợ lý đang gọi khách thế nào, sai thì chọn lại (anh / chị / bạn), lựa chọn của bạn được giữ mãi.
