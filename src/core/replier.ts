@@ -31,6 +31,9 @@ export interface ReplierOptions {
 }
 
 const HISTORY = 30;
+/** Trần tự gửi cho một hội thoại: quá ngần này tin trợ lý tự gửi trong 1 giờ / 24 giờ thì chuyển sang soạn nháp. */
+export const AUTO_CAP_HOUR = 6;
+export const AUTO_CAP_DAY = 15;
 
 /**
  * AI trả lời khách. Mỗi lượt tin của khách đi qua: gom tin → luật hệ thống (replyPolicy.decide)
@@ -53,6 +56,13 @@ export class Replier {
     find(accountId: number, userId: string): { profileId: number; groupId: string; groupName: string } | null;
     applied(accountId: number, userId: string, hit: { profileId: number; groupId: string; groupName: string }): void;
   } | null = null;
+  /**
+   * Điều đã biết về khách (hồ sơ chăm sóc: giai đoạn, thông tin, đã trao đổi, nhu cầu) để trợ lý nhớ khách khi trả lời,
+   * không chỉ dựa vào 30 tin gần nhất. Bộ chăm sóc gắn vào; trả "" khi chưa có hồ sơ.
+   */
+  customerNote: ((accountId: number, threadId: string) => string) | null = null;
+  /** Báo chủ ngoài app (VD Zalo "Cloud của tôi") khi có việc gấp. */
+  alertOwner: ((accountId: number, text: string, threadId: string) => void) | null = null;
 
   constructor(
     private readonly profiles: ProfileStore,
@@ -195,7 +205,19 @@ export class Replier {
     acc.inbox.setHandoff(event.threadId, this.now() + HANDOFF_MS, reason);
     this.store.supersede(acc.accountId, event.threadId);
     const quote = event.text ? `: "${event.text.slice(0, 160)}"` : "";
-    this.store.notify(acc.accountId, "handoff", `${who} cần người thật (${reason})${quote}. Trợ lý dừng ở hội thoại này 24 giờ.`, event.threadId);
+    const text = `${who} cần người thật (${reason})${quote}. Trợ lý dừng ở hội thoại này 24 giờ.`;
+    this.store.notify(acc.accountId, "handoff", text, event.threadId);
+    this.alertOwner?.(acc.accountId, text, event.threadId);
+  }
+
+  /** Hội thoại đã chạm trần tự gửi (dấu hiệu hai bot nhắn qua lại, hoặc khách nhắn dồn): trả lý do, hoặc "". */
+  private autoCapReason(acc: ReplierAccount, threadId: string): string {
+    const now = this.now();
+    const hour = acc.inbox.aiSentSince(threadId, now - 3_600_000);
+    if (hour >= AUTO_CAP_HOUR) return `trợ lý đã tự gửi ${hour} tin trong 1 giờ`;
+    const day = acc.inbox.aiSentSince(threadId, now - 24 * 3_600_000);
+    if (day >= AUTO_CAP_DAY) return `trợ lý đã tự gửi ${day} tin trong 24 giờ`;
+    return "";
   }
 
   private history(acc: ReplierAccount, threadId: string, isGroup: boolean): ChatMessage[] {
@@ -233,7 +255,8 @@ export class Replier {
         salutation: acc.salutation(t.senderId),
       }) +
       "\n\n" +
-      this.profiles.compose(profile.id, undefined, this.now());
+      this.profiles.compose(profile.id, undefined, this.now()) +
+      (isGroup ? "" : customerBlock(this.customerNote?.(acc.accountId, t.threadId) ?? ""));
     return engine.generate({ system, messages });
   }
 
@@ -301,6 +324,21 @@ export class Replier {
       this.store.notify(acc.accountId, "error", `Zalo mất kết nối nên câu trả lời cho ${who} được giữ ở dạng nháp.`, event.threadId);
       return;
     }
+    const cap = this.autoCapReason(acc, event.threadId);
+    if (cap) {
+      // Chặn hai bot nói chuyện với nhau mãi / nick bị Zalo hạn chế: giữ nháp, báo chủ một lần cho mỗi đợt.
+      const already = this.store.pending(acc.accountId, event.threadId).length > 0;
+      this.store.addDraft(acc.accountId, event.threadId, profile.id, text, parsed.handoff, this.now());
+      if (!already) {
+        this.store.notify(
+          acc.accountId,
+          "draft",
+          `${who}: ${cap}, nên câu tiếp theo được giữ ở dạng nháp chờ bạn duyệt (có thể là một bot khác đang nhắn qua lại).`,
+          event.threadId,
+        );
+      }
+      return;
+    }
     try {
       const ids = await acc.sendText(event.threadId, event.threadType, text);
       acc.inbox.recordOutbound(event.threadId, event.threadType, text, "ai", ids[0] ?? null, this.now());
@@ -346,4 +384,18 @@ export class Replier {
   dispose() {
     for (const b of this.batchers.values()) b.dispose();
   }
+}
+
+/** Khối "điều đã biết về khách" thêm vào cuối lời dặn AI (rỗng nếu chưa có hồ sơ). */
+export function customerBlock(note: string): string {
+  const t = note.trim();
+  if (!t) return "";
+  return [
+    "",
+    "",
+    "# Điều đã biết về khách này",
+    "Hồ sơ do trợ lý ghi từ các lần trò chuyện trước, chủ có thể đã sửa. Dùng để hiểu khách và nối tiếp câu chuyện;",
+    "không đọc lại nguyên văn cho khách, không nói là có hồ sơ. Thông tin sản phẩm, giá, lịch vẫn chỉ lấy từ <tai_lieu>.",
+    t,
+  ].join("\n");
 }

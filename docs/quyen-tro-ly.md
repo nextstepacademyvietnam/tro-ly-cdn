@@ -162,6 +162,9 @@ Thiệp sinh nhật Zalo chỉ là *gợi ý* cho chủ, không tự gửi lời
 
 - Tin nhắn và hộp thư chỉ lưu trên máy chạy app.
 - Khi **trả lời khách**, AI chỉ nhận: khung chung, mô tả và tài liệu của **đúng vai trò** đang áp dụng, và **lịch sử của đúng hội thoại đang trả lời** (tối đa 30 tin gần nhất). Không đưa tin của hội thoại khác vào.
+- Khi trả lời chat riêng, AI nhận thêm **điều đã biết về đúng khách đó**: hồ sơ chăm sóc (nếu có) và kết quả tra Pancake CRM theo số điện thoại của khách (trạng thái, sản phẩm đã chốt…), kèm lời dặn không tự xác nhận thanh toán, giữ chỗ hay chốt. Tên người phụ trách và ghi chú nội bộ trong CRM không đưa cho AI.
+- Tra CRM: app giữ chỉ mục trên máy, số điện thoại **băm SHA-256**, không lưu số gốc; chỉ đọc CRM, không ghi.
+- Báo chủ qua Zalo: app nhắn vào "Cloud của tôi" của chính nick đó (chỉ chủ thấy), không nhắn ai khác.
 - Hai việc nền chỉ ra **gợi ý cho chủ**, không bao giờ nhắn khách:
   - **Gợi ý gắn nhãn**: AI đọc tối đa 20 tin gần nhất của một khách chat riêng *chưa có nhãn trợ lý*, cùng mô tả ngắn các tính cách, để đoán khách thuộc tính cách nào hay "không" (người nhà, nội bộ, đối tác). Mỗi khách xét một lần; khách nhắn lại sau một ngày mới xét lại.
   - **Học hỏi đáp**: AI đọc các lượt *khách hỏi → chủ trả lời* (chủ tự gõ, hoặc chủ sửa nháp trợ lý) trong 30 ngày, ở chat riêng chưa có nhãn hoặc có nhãn của chính tính cách đó; bỏ nhóm và hội thoại "Không bot". AI được dặn bỏ tên, số điện thoại, số tài khoản. Kết quả là gợi ý chờ chủ duyệt.
@@ -288,6 +291,9 @@ Chủ **không** viết được gì để nới lỏng Phần A. Nếu mô tả
 | A7 từ chối nhận tin | `conversations.no_proactive`; nhóm "trợ lý dừng lại" → gắn nhãn tắt |
 | A8 nhắn chủ động | `SendPacer` + lịch gửi (chủ đặt tay) |
 | Khách chờ lâu, nhờ trợ lý soạn | `Inbox.waitingReplies()` + `core/waiting.ts` (30 phút, bỏ tin khép chuyện); `Replier.draftFor()` luôn ra nháp |
+| Trần tự gửi (chặn bot nhắn qua lại) | `Replier.autoCapReason()`: 6 tin/giờ, 15 tin/24 giờ mỗi hội thoại → nháp |
+| Báo chủ qua Zalo, tóm tắt 17:30 | `server/ownerAlerts.ts`, cột `accounts.owner_alerts` |
+| Tra CRM | `crm/service.ts` (bảng `crm_index`, `crm_links`, `contacts.phone`) |
 | A10 gợi ý nhãn, học hỏi đáp | `assist/service.ts` (một lần gọi AI mỗi phút), bảng `faq_suggestions`, `drafts.original_text` |
 | A9 chốt chặn | `MessageBatcher` gom 7 giây, bỏ tin cũ > 10 phút, lỗi → im + báo chủ |
 | Lệnh chủ, dừng khẩn cấp | `isOwnerCommandChannel()`; `accounts.paused`; nút Tạm dừng toàn bộ |

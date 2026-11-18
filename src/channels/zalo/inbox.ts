@@ -157,6 +157,14 @@ export class Inbox {
     return out;
   }
 
+  /** Số tin trợ lý trả lời (không tính tin chào, lịch gửi) trong hội thoại từ mốc `since`. */
+  aiSentSince(threadId: string, since: number): number {
+    const r = this.db
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE account_id = ? AND thread_id = ? AND source = 'ai' AND kind = 'text' AND created_at >= ?")
+      .get(this.accountId, threadId, since) as { n: number };
+    return Number(r.n);
+  }
+
   /** Chủ thấy hội thoại không cần trả lời: không tính "chờ" tới khi khách nhắn tin mới. */
   markNoReplyNeeded(threadId: string) {
     this.db

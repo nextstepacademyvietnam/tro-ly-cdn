@@ -141,6 +141,7 @@ export function AccountsPage({
           </p>
         )}
       </div>
+      {connected && <OwnerAlertsCard key={account?.id ?? 0} />}
       <div>
         <button type="button" onClick={() => onAddAccount().catch(() => undefined)}>
           <Plus aria-hidden />
@@ -148,6 +149,66 @@ export function AccountsPage({
         </button>
       </div>
     </section>
+  );
+}
+
+/** Báo về Zalo của chính bạn (khung "Cloud của tôi"): việc gấp và tóm tắt cuối ngày. */
+function OwnerAlertsCard() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [preview, setPreview] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<{ enabled: boolean; preview: string }>("/api/owner-alerts")
+      .then((r) => (setOn(r.enabled), setPreview(r.preview)))
+      .catch(() => undefined);
+  }, []);
+  if (on === null) return null;
+  const toggle = async () => {
+    const r = await api<{ enabled: boolean }>("/api/owner-alerts", { method: "PUT", body: { enabled: !on } });
+    setOn(r.enabled);
+  };
+  const test = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      await api("/api/owner-alerts/test", { method: "POST" });
+      setMsg('Đã gửi. Mở Zalo trên điện thoại, xem khung "Cloud của tôi".');
+    } catch (err) {
+      setMsg((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card stack">
+      <div className="row between">
+        <div>
+          <strong>Báo về Zalo của bạn</strong>
+          <p className="muted small alert-intro">
+            Trợ lý nhắn vào khung <b>Cloud của tôi</b> trên Zalo của nick này khi khách cần bạn trực tiếp, khi nháp chờ duyệt quá 15 phút,
+            và gửi tóm tắt lúc 17:30 mỗi ngày. Từ 21:30 tới 7:30 không nhắn, sáng gửi gộp.
+          </p>
+        </div>
+        <button type="button" role="switch" aria-checked={on} aria-label="Báo về Zalo của bạn" className="switch" onClick={toggle}>
+          <i />
+        </button>
+      </div>
+      {on && (
+        <div className="row">
+          <button type="button" className="small-btn" disabled={busy} onClick={test}>
+            {busy ? "Đang gửi…" : "Gửi thử"}
+          </button>
+          {msg && <span className="muted small">{msg}</span>}
+        </div>
+      )}
+      {on && preview && (
+        <details className="small">
+          <summary>Xem tóm tắt hôm nay sẽ trông thế nào</summary>
+          <pre className="alert-preview">{preview}</pre>
+        </details>
+      )}
+    </div>
   );
 }
 

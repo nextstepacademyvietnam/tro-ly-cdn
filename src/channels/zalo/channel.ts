@@ -353,16 +353,21 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
    * Hồ sơ nhiều người (tên + giới tính) qua getUserInfo, theo lô 50. getGroupMembersInfo không có giới tính
    * nên phải hỏi riêng. Lô nào lỗi thì bỏ qua; người không có trong kết quả là Zalo không trả hồ sơ.
    */
-  async userProfiles(ids: string[]): Promise<Map<string, { name: string; gender: Gender }>> {
+  async userProfiles(ids: string[]): Promise<Map<string, { name: string; gender: Gender; phone: string }>> {
     const api = this.requireApi();
-    const out = new Map<string, { name: string; gender: Gender }>();
+    const out = new Map<string, { name: string; gender: Gender; phone: string }>();
     for (const batch of chunked(ids, 50)) {
       try {
         const res = (await withTimeout(api.getUserInfo(batch), 15_000)) as {
-          changed_profiles?: Record<string, { displayName?: string; zaloName?: string; gender?: unknown }>;
+          changed_profiles?: Record<string, { displayName?: string; zaloName?: string; gender?: unknown; phoneNumber?: string }>;
         };
         for (const [id, p] of Object.entries(res?.changed_profiles ?? {})) {
-          out.set(String(id).split("_")[0]!, { name: String(p?.displayName || p?.zaloName || ""), gender: genderFromZalo(p?.gender) });
+          out.set(String(id).split("_")[0]!, {
+            name: String(p?.displayName || p?.zaloName || ""),
+            gender: genderFromZalo(p?.gender),
+            // Zalo chỉ trả số khi là bạn bè hoặc người đó cho xem số; dùng để tra khách trong CRM.
+            phone: String(p?.phoneNumber ?? "").replace(/\D/g, ""),
+          });
         }
       } catch {
         /* giới tính chỉ để xưng hô */

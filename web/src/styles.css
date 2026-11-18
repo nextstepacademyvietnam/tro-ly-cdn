@@ -237,3 +237,7 @@ label.field > span { font-weight: 500; }
 .learn-field { display: grid; gap: 2px; font-weight: 400; font-size: 13px; }
 .learn-field > span { font-size: 12px; font-weight: 500; color: var(--muted); }
 .learn-field textarea { resize: vertical; font-size: 13px; }
+
+/* ----- Báo về Zalo của bạn (Tài khoản Zalo) ----- */
+.alert-intro { margin: 4px 0 0; max-width: 620px; line-height: 1.5; }
+.alert-preview { margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--background); white-space: pre-wrap; font: inherit; font-size: 13px; }

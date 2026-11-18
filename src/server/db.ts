@@ -386,6 +386,28 @@ const MIGRATIONS: string[] = [
      decided_at INTEGER
    );
    CREATE INDEX faq_suggestions_profile ON faq_suggestions (profile_id, status);`,
+  // Báo chủ qua Zalo của chính họ ("Cloud của tôi"): việc gấp và tóm tắt cuối ngày. Bật sẵn, tắt theo tài khoản.
+  `ALTER TABLE accounts ADD COLUMN owner_alerts INTEGER NOT NULL DEFAULT 1;
+   ALTER TABLE accounts ADD COLUMN digest_day TEXT NOT NULL DEFAULT '';`,
+  // Tra khách trong Pancake CRM từ Hộp thư: API không lọc được theo số điện thoại nên giữ một chỉ mục trên máy
+  // (số điện thoại băm SHA-256, không lưu số gốc) + vài trường làm việc. Số chủ tự nhập cho một hội thoại thì lưu riêng.
+  `CREATE TABLE crm_index (
+     phone_hash TEXT NOT NULL,
+     table_name TEXT NOT NULL,
+     record_id TEXT NOT NULL,
+     created_on TEXT NOT NULL DEFAULT '',
+     data TEXT NOT NULL DEFAULT '{}',
+     PRIMARY KEY (phone_hash, table_name, record_id)
+   );
+   CREATE TABLE crm_links (
+     account_id INTEGER NOT NULL,
+     thread_id TEXT NOT NULL,
+     phone TEXT NOT NULL,
+     at INTEGER NOT NULL,
+     PRIMARY KEY (account_id, thread_id)
+   );
+   ALTER TABLE contacts ADD COLUMN phone TEXT NOT NULL DEFAULT '';
+   UPDATE contacts SET fetched_at = 0 WHERE gender_source <> 'chu';`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

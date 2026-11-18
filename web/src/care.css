@@ -58,3 +58,18 @@
 
 /* ----- Thẻ cài đặt ở trang Tính cách ----- */
 .care-settings textarea { resize: vertical; }
+
+/* ----- Khách trong CRM (cột thông tin Hộp thư) ----- */
+.crm-sec { gap: 8px; }
+.crm-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--background); }
+.crm-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.crm-kind { font-size: 12px; font-weight: 500; color: var(--muted); }
+.crm-name { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.crm-name .muted { font-weight: 400; font-size: 12px; }
+.crm-card .care-dl > div { display: contents; }
+.crm-link { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; }
+.crm-link svg, .crm-refresh svg { width: 13px; height: 13px; }
+.crm-form { display: flex; gap: 6px; }
+.crm-form input { min-width: 0; flex: 1; height: 34px; }
+.crm-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.crm-refresh { display: inline-flex; align-items: center; gap: 4px; }

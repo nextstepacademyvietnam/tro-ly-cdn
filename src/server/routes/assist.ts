@@ -4,13 +4,14 @@ import type { AssistService } from "../../assist/service.js";
 import type { AssistantStore } from "../../core/assistantStore.js";
 import type { ProfileStore } from "../../core/profiles.js";
 import type { Replier } from "../../core/replier.js";
+import type { OwnerAlerts } from "../ownerAlerts.js";
 
 const DAY = 24 * 3_600_000;
 
 /** Khách chờ lâu (nhờ trợ lý soạn, không cần trả lời), gợi ý gắn nhãn, gợi ý hỏi đáp học từ chủ. */
 export function registerAssistRoutes(
   app: FastifyInstance,
-  d: { accounts: AccountManager; assist: AssistService; replier: Replier; profiles: ProfileStore; assistant: AssistantStore },
+  d: { accounts: AccountManager; assist: AssistService; replier: Replier; profiles: ProfileStore; assistant: AssistantStore; ownerAlerts?: OwnerAlerts },
 ) {
   const fail = (err: unknown, code = 409) => Object.assign(new Error((err as Error).message), { statusCode: code });
   const inbox = (accountId: number, threadId: string) => {
@@ -45,6 +46,21 @@ export function registerAssistRoutes(
   app.post<{ Params: { id: string } }>("/api/zalo/conversations/:id/suggestion/dismiss", async (req) => {
     inbox(req.accountId, req.params.id);
     d.assist.dismissSuggestion(req.accountId, req.params.id);
+    return { ok: true };
+  });
+
+  // ---------- Báo chủ qua Zalo "Cloud của tôi" ----------
+  app.get("/api/owner-alerts", async (req) => ({ enabled: d.ownerAlerts?.enabled(req.accountId) ?? false, preview: d.ownerAlerts?.digest(req.accountId) ?? "" }));
+  app.put<{ Body: { enabled?: boolean } }>("/api/owner-alerts", async (req) => {
+    d.ownerAlerts?.setEnabled(req.accountId, Boolean(req.body?.enabled));
+    return { enabled: d.ownerAlerts?.enabled(req.accountId) ?? false };
+  });
+  app.post("/api/owner-alerts/test", async (req) => {
+    try {
+      await d.ownerAlerts?.test(req.accountId);
+    } catch (err) {
+      throw fail(err);
+    }
     return { ok: true };
   });
 

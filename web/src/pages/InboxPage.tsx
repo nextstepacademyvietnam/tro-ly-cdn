@@ -20,6 +20,7 @@ import {
 import { type Account, type BotState, type Draft, type Profile, api } from "../api";
 import { ScheduleForm } from "../schedules/ScheduleForm";
 import { CareSection } from "../care/CareSection";
+import { CrmSection } from "../crm/CrmSection";
 import { ScheduleSidebar } from "../schedules/SchedulePanels";
 import { Avatar, Popover, fullDate, shortTime, timeAndDay, waitLevel, waitText } from "../ui";
 
@@ -513,6 +514,7 @@ export function InboxPage({
                 />
               )}
             </div>
+            {current.thread_type === "user" && <CrmSection key={`crm-${current.thread_id}`} threadId={current.thread_id} />}
             {current.thread_type === "user" && <CareSection key={`care-${current.thread_id}`} threadId={current.thread_id} />}
           </aside>
         </>

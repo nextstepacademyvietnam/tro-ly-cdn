@@ -17,6 +17,10 @@ import { registerCareRoutes } from "./routes/care.js";
 import { registerAssistRoutes } from "./routes/assist.js";
 import { AssistService } from "../assist/service.js";
 import { ConnectionWatch } from "./connectionWatch.js";
+import { OwnerAlerts } from "./ownerAlerts.js";
+import { CrmService } from "../crm/service.js";
+import { registerCrmRoutes } from "./routes/crm.js";
+import { DEFAULT_RULES, type LeadRules } from "../mkt/connectors/pancake.js";
 import { CareStore } from "../care/store.js";
 import { CareService } from "../care/service.js";
 import { registerProfileRoutes } from "./routes/profiles.js";
@@ -242,15 +246,51 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
   const watch = new ConnectionWatch(accounts, assistant);
+  // Báo chủ qua Zalo "Cloud của tôi": khách cần người thật, nháp chờ lâu, tóm tắt cuối ngày.
+  const ownerAlerts = new OwnerAlerts({
+    db: deps.db,
+    assistant,
+    accountIds: () => accounts.list().map((a) => a.id),
+    account: (id) => accounts.replierAccount(id),
+    careDue: (id, now) => careStore.dueToday(id, now),
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  replier.alertOwner = (id, text) => ownerAlerts.alert(id, text);
+  // Trả lời khách có nhớ hồ sơ chăm sóc (giai đoạn, thông tin, đã trao đổi, nhu cầu).
+  // Tra khách trong Pancake CRM (cần đã nối Pancake ở mục MKT): gắn ở khối MKT bên dưới.
+  let crm: CrmService | null = null;
+  replier.customerNote = (id, threadId) => {
+    const p = careStore.get(id, threadId);
+    const care = p
+      ? [
+          p.stage && `Giai đoạn: ${p.stage}`,
+          p.facts && `Thông tin khách:\n${p.facts}`,
+          p.summary && `Đã trao đổi:\n${p.summary}`,
+          p.needs && `Nhu cầu, vướng mắc:\n${p.needs}`,
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "";
+    let fromCrm = "";
+    try {
+      const svc = accounts.get(id);
+      fromCrm = crm?.note(id, threadId, svc.inbox, svc.contacts.phone(threadId)) ?? "";
+    } catch {
+      /* tài khoản vừa xoá */
+    }
+    return [care, fromCrm].filter(Boolean).join("\n\n");
+  };
   if (deps.dataDir) {
     assist.start();
     watch.start();
+    ownerAlerts.start();
   }
   app.addHook("onClose", async () => {
     assist.stop();
     watch.stop();
+    ownerAlerts.stop();
   });
-  registerAssistRoutes(app, { accounts, assist, replier, profiles, assistant });
+  registerAssistRoutes(app, { accounts, assist, replier, profiles, assistant, ownerAlerts });
 
   registerAccountRoutes(app, accounts, profiles, assistant, schedules.store, careStore);
   registerProfileRoutes(app, profiles, accounts, engineOrNull);
@@ -292,7 +332,23 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (deps.dataDir) mktRunner.start();
     app.addHook("onClose", async () => mktRunner.stop());
     registerMktRoutes(app, { store: mktStore, runner: mktRunner, fetch: deps.mktFetch });
+    crm = new CrmService({
+      db: deps.db,
+      cred: () => {
+        const s = mktStore.secret<{ apiKey?: string; shopId?: string }>("pancake");
+        const conn = mktStore.connection("pancake");
+        if (!s?.apiKey || !s.shopId || conn.status === "off") return null;
+        const rules = (conn.meta.rules as LeadRules | undefined) ?? DEFAULT_RULES;
+        return { apiKey: s.apiKey, shopId: s.shopId, contactTable: rules.contactTable, workshopTable: rules.workshopTable };
+      },
+      fetch: deps.mktFetch,
+      log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+    });
+    if (deps.dataDir) crm.start();
+    const crmRef = crm;
+    app.addHook("onClose", async () => crmRef.stop());
   }
+  registerCrmRoutes(app, { accounts, crm: () => crm });
   registerFeedbackRoutes(app, {
     url: deps.feedbackUrl ?? null,
     version: deps.version ?? "",
