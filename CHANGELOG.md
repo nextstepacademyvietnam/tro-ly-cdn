@@ -10,11 +10,20 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 ## [Chưa phát hành]
 
 ### Mới
+- **Chăm sóc khách chủ động**: bật trong trang **Tính cách**. Với mỗi khách chat riêng gắn nhãn tính cách đó, trợ lý đọc lại hội thoại, ghi **hồ sơ khách** (thông tin, những gì đã trao đổi, nhu cầu, giai đoạn) và đặt **lịch chăm sóc** tiếp theo: bao lâu một lần, ngày nào, lần tới cần làm gì, kèm lý do. Tới lịch, trợ lý **soạn sẵn tin chăm sóc** vào mục Cần xử lý để bạn duyệt rồi gửi, không tự gửi.
+- Hộp thư, cột thông tin có thêm mục **Chăm sóc**: xem và sửa hồ sơ khách, đổi lịch (khoá để AI không tự đổi), tạm dừng, phân tích lại, xem lịch sử chăm sóc. Menu có thêm trang **Chăm sóc**: khách tới lượt hôm nay, sắp tới, tạm dừng, đã dừng.
+- Trợ lý tự dừng chăm sóc người không phải khách (người nhà, nội bộ) và khách xin không nhận tin; không nhắn trong giờ yên lặng 21:30–07:30.
+- Chào riêng thành viên mới trong nhóm có thể **gửi kèm lời mời kết bạn** (bật / tắt được), người chặn tin từ người lạ vẫn nhận được lời mời.
 - Trợ lý gọi khách đúng **anh**, **chị** theo giới tính trong hồ sơ Zalo của khách; chưa rõ giới tính thì gọi **bạn**. App không đoán giới tính từ tên.
 - Hộp thư, cột **Khách** có thêm dòng **Gọi là**: xem trợ lý đang gọi khách thế nào, sai thì chọn lại (anh / chị / bạn), lựa chọn của bạn được giữ mãi.
 - Bộ lọc Hộp thư thêm **Giới tính** (Nam, Nữ, Chưa rõ), chọn nhiều để lên lịch gửi riêng cho từng nhóm khách.
 - Tin chào thành viên nhóm và lịch gửi tin có thêm biến **{xưng hô}** (và **{Xưng hô}** viết hoa đầu câu), **{tên}**: mỗi người nhận một tin gọi đúng anh, chị, bạn và đúng tên mình. Ô soạn lịch gửi có nút chèn biến và xem trước tin.
 - Menu chia nhóm **Zalo / Cài đặt**; ô chuyển tài khoản Zalo nằm ngay trong nhóm Zalo.
+
+### Sửa
+- Zalo **tự nối lại** khi rớt mạng hoặc máy vừa ngủ dậy (trước đây nằm im ở "Mất kết nối" tới khi bấm Kết nối lại, làm lỡ tin và lỡ lời chào nhóm). Người vào nhóm lúc mất kết nối vẫn được chào nếu chưa quá 24 giờ.
+- Tải ảnh lớn (ảnh gốc điện thoại, ảnh thiết kế) cho lời chào và lịch gửi không còn lỗi: app tự thu nhỏ trước khi tải, có lỗi thì báo rõ.
+- Số người vào nhóm không còn bị đếm trùng.
 
 ## [0.2.1] - 2026-11-11
 

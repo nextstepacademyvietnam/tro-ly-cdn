@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AccountManager } from "../../channels/zalo/accounts.js";
 import { type ProfileStore, resolveProfile } from "../../core/profiles.js";
 import type { AssistantStore } from "../../core/assistantStore.js";
+import type { CareStore } from "../../care/store.js";
 import type { ScheduleStore } from "../../scheduler/store.js";
 
 declare module "fastify" {
@@ -10,7 +11,7 @@ declare module "fastify" {
   }
 }
 
-export function registerAccountRoutes(app: FastifyInstance, accounts: AccountManager, profiles: ProfileStore, assistant: AssistantStore, schedules?: ScheduleStore) {
+export function registerAccountRoutes(app: FastifyInstance, accounts: AccountManager, profiles: ProfileStore, assistant: AssistantStore, schedules?: ScheduleStore, care?: CareStore) {
   const fail = (err: unknown, code = 409) => Object.assign(new Error((err as Error).message), { statusCode: code });
   const svc = (req: FastifyRequest) => {
     try {
@@ -48,6 +49,8 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
         unreadConversations: counts.unread,
         activeSchedules: schedules ? schedules.list({ accountId: a.id, status: "active" }).length : 0,
         trackedGroups: accounts.trackedGroupCount(a.id),
+        // Khách tới lượt chăm sóc trong hôm nay (số ở mục Chăm sóc).
+        careDue: care ? care.dueToday(a.id, Date.now()) : 0,
       };
     }),
   }));
@@ -155,6 +158,7 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
     const pending = assistant.pendingCounts(req.accountId);
     const since = assistant.pendingSince(req.accountId);
     const first = s.inbox.firstMessageTimes();
+    const carePlans = new Map((care?.list(req.accountId) ?? []).map((p) => [p.threadId, p]));
     const now = Date.now();
     return {
       labelsAvailable: labels !== null,
@@ -165,6 +169,8 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
           pendingDrafts: pending.get(c.thread_id) ?? 0,
           draftSince: since.get(c.thread_id) ?? 0,
           firstMessageAt: first.get(c.thread_id) ?? 0,
+          // Lần chăm sóc chủ động tới (0 = chưa có kế hoạch / đang dừng).
+          nextCareAt: carePlans.get(c.thread_id)?.status === "active" ? (carePlans.get(c.thread_id)?.nextAt ?? 0) : 0,
           // Cách gọi khách (chỉ chat riêng): giới tính hồ sơ Zalo hoặc chủ sửa tay.
           gender: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.gender ?? "") : "",
           genderSource: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.source ?? "") : "",

@@ -1,7 +1,7 @@
 import type { Inbox } from "../channels/zalo/inbox.js";
 import { type InboundEvent, MessageBatcher, type ThreadType, isOwnerCommandChannel } from "../channels/zalo/protocol.js";
 import type { ChatMessage, Engine } from "../engines/index.js";
-import type { AssistantStore } from "./assistantStore.js";
+import type { AssistantStore, Draft } from "./assistantStore.js";
 import type { Profile, ProfileStore } from "./profiles.js";
 import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply } from "./replyPolicy.js";
 
@@ -14,7 +14,7 @@ export interface ReplierAccount {
   isConnected(): boolean;
   labels(): Promise<unknown[] | null>;
   groupName(threadId: string): Promise<string>;
-  sendText(threadId: string, type: ThreadType, text: string): Promise<string[]>;
+  sendText(threadId: string, type: ThreadType, text: string, opts?: { proactive?: boolean }): Promise<string[]>;
   /** Ghi nhãn thật trong Zalo (null = gỡ các nhãn trong `exclusive`). */
   setLabel(threadId: string, type: ThreadType, target: string | null, exclusive: string[]): Promise<unknown>;
   /** Cách gọi một người (anh / chị / bạn) theo giới tính đã lưu. */
@@ -26,6 +26,8 @@ export interface ReplierOptions {
   batchMs?: number;
   now?: () => number;
   log?: (msg: string, extra?: object) => void;
+  /** Gọi sau khi một nháp được duyệt và gửi đi (bộ chăm sóc khách dùng để đếm lần chăm sóc). */
+  onDraftSent?: (draft: Draft) => void;
 }
 
 const HISTORY = 30;
@@ -41,6 +43,8 @@ export class Replier {
   private readonly now: () => number;
   private readonly batchMs: number;
   private readonly log: (msg: string, extra?: object) => void;
+  /** Bộ chăm sóc khách gắn vào sau khi tạo (tránh vòng phụ thuộc lúc khởi tạo). */
+  onDraftSent: ((draft: Draft) => void) | null = null;
 
   constructor(
     private readonly profiles: ProfileStore,
@@ -52,6 +56,7 @@ export class Replier {
     this.now = opts.now ?? Date.now;
     this.batchMs = opts.batchMs ?? 7_000;
     this.log = opts.log ?? (() => {});
+    this.onDraftSent = opts.onDraftSent ?? null;
   }
 
   /** Gọi sau khi tin đã được ghi vào hộp thư. */
@@ -245,9 +250,11 @@ export class Replier {
     const body = (text ?? d.text).trim();
     if (!body) throw new Error("Nội dung trống");
     try {
-      const ids = await acc.sendText(d.threadId, conv?.thread_type ?? "user", body);
+      // Tin chăm sóc là tin chủ động: bộ nhịp gửi chặn giờ yên lặng.
+      const ids = await acc.sendText(d.threadId, conv?.thread_type ?? "user", body, { proactive: d.origin === "care" });
       acc.inbox.recordOutbound(d.threadId, conv?.thread_type ?? "user", body, "ai", ids[0] ?? null, this.now());
       this.store.decide(draftId, "sent", "", body);
+      this.onDraftSent?.({ ...d, text: body, status: "sent" });
     } catch (err) {
       this.store.decide(draftId, "failed", (err as Error).message);
       throw err;

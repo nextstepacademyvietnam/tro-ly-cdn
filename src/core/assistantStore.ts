@@ -13,13 +13,15 @@ export interface Draft {
   error: string;
   createdAt: number;
   decidedAt: number | null;
+  /** "care" = tin chăm sóc chủ động do bộ chạy chăm sóc soạn, "reply" = trả lời tin khách. */
+  origin: "reply" | "care";
 }
 
 export interface Notice {
   id: number;
   accountId: number;
   threadId: string;
-  kind: "handoff" | "error" | "conflict" | "opt_out" | "command" | "group_stop" | "draft" | "update" | "mkt";
+  kind: "handoff" | "error" | "conflict" | "opt_out" | "command" | "group_stop" | "draft" | "update" | "mkt" | "care";
   text: string;
   createdAt: number;
   read: boolean;
@@ -36,6 +38,7 @@ const toDraft = (r: Record<string, unknown>): Draft => ({
   error: String(r.error ?? ""),
   createdAt: Number(r.created_at),
   decidedAt: r.decided_at === null ? null : Number(r.decided_at),
+  origin: r.origin === "care" ? "care" : "reply",
 });
 
 /** Nháp chờ duyệt, thông báo cho chủ, cờ tạm dừng của tài khoản. */
@@ -44,11 +47,19 @@ export class AssistantStore {
 
   // ---------- Nháp ----------
   /** Tạo nháp mới; nháp cũ còn chờ của cùng hội thoại coi như bị thay. */
-  addDraft(accountId: number, threadId: string, profileId: number | null, text: string, handoff: boolean, now = Date.now()): Draft {
+  addDraft(
+    accountId: number,
+    threadId: string,
+    profileId: number | null,
+    text: string,
+    handoff: boolean,
+    now = Date.now(),
+    origin: Draft["origin"] = "reply",
+  ): Draft {
     this.supersede(accountId, threadId, now);
     const r = this.db
-      .prepare("INSERT INTO drafts (account_id, thread_id, profile_id, text, handoff, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(accountId, threadId, profileId, text, handoff ? 1 : 0, now);
+      .prepare("INSERT INTO drafts (account_id, thread_id, profile_id, text, handoff, created_at, origin) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(accountId, threadId, profileId, text, handoff ? 1 : 0, now, origin);
     return this.draft(Number(r.lastInsertRowid))!;
   }
 
@@ -56,6 +67,15 @@ export class AssistantStore {
     this.db
       .prepare("UPDATE drafts SET status = 'superseded', decided_at = ? WHERE account_id = ? AND thread_id = ? AND status = 'pending'")
       .run(now, accountId, threadId);
+  }
+
+  /** Bỏ nháp còn chờ của một nguồn (VD nháp chăm sóc) soạn trước mốc `before` — khách đã nói chuyện tiếp. */
+  supersedeOrigin(accountId: number, threadId: string, origin: Draft["origin"], before: number, now = Date.now()) {
+    this.db
+      .prepare(
+        "UPDATE drafts SET status = 'superseded', decided_at = ? WHERE account_id = ? AND thread_id = ? AND status = 'pending' AND origin = ? AND created_at < ?",
+      )
+      .run(now, accountId, threadId, origin, before);
   }
 
   draft(id: number): Draft | undefined {

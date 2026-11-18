@@ -4,6 +4,7 @@ import {
   Bot,
   Bug,
   CalendarClock,
+  HeartHandshake,
   ChartLine,
   Check,
   ChevronsUpDown,
@@ -28,6 +29,7 @@ import { type Account, type Notice, api, prefs, setCurrentAccount } from "./api"
 import { AccountsPage } from "./pages/AccountsPage";
 import { AuthScreen } from "./pages/AuthScreen";
 import { InboxPage } from "./pages/InboxPage";
+import { CarePage } from "./pages/CarePage";
 import { GroupsPage } from "./pages/GroupsPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
@@ -39,15 +41,17 @@ import { OverviewPage } from "./pages/mkt/OverviewPage";
 import { ChannelsPage } from "./pages/mkt/ChannelsPage";
 import { ConnectionsPage } from "./pages/mkt/ConnectionsPage";
 import "./mkt.css";
+import "./care.css";
 
 type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string; features?: { mkt?: boolean } };
-export type Page = "can" | "hop" | "schedules" | "groups" | "profiles" | "accounts" | "models" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
+export type Page = "can" | "hop" | "chamsoc" | "schedules" | "groups" | "profiles" | "accounts" | "models" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
 const MKT_PAGES: Page[] = ["mkt", "mkt-kenh", "mkt-ketnoi"];
 type Theme = "system" | "light" | "dark";
 
 const TITLES: Record<Page, string> = {
   can: "Cần xử lý",
   hop: "Hộp thư",
+  chamsoc: "Chăm sóc",
   schedules: "Lịch gửi",
   groups: "Nhóm Zalo",
   profiles: "Tính cách",
@@ -89,6 +93,8 @@ function savedPage(): Page {
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [page, setPage] = useState<Page>(savedPage);
+  /** Hội thoại cần mở sẵn khi vào Hộp thư (bấm một khách ở trang Chăm sóc, hoặc ?hoi=<id>). */
+  const [openThread, setOpenThread] = useState<string | null>(() => new URLSearchParams(location.search).get("hoi"));
   const [theme, setTheme] = useState<Theme>(() => (prefs.get("theme") as Theme) || "system");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountId, setAccountId] = useState<number | null>(null);
@@ -244,6 +250,7 @@ export function App() {
           </Popover>
             {nav("can", Inbox, current?.needsAction)}
           {nav("hop", MessagesSquare, current?.unreadConversations)}
+          {nav("chamsoc", HeartHandshake, current?.careDue)}
           {nav("schedules", CalendarClock, current?.activeSchedules)}
           {nav("groups", UsersRound, current?.trackedGroups)}
           {nav("profiles", Sparkles)}
@@ -317,6 +324,7 @@ export function App() {
             {(page === "can" || page === "hop") && (
               <InboxPage
                 account={current}
+                initialThread={openThread}
                 mode={page === "can" ? "can" : "all"}
                 onModeChange={(m) => go(m === "can" ? "can" : "hop")}
                 onGoAccounts={() => go("accounts")}
@@ -325,6 +333,16 @@ export function App() {
             {page === "schedules" && (
               <div className="page">
                 <SchedulesPage />
+              </div>
+            )}
+            {page === "chamsoc" && (
+              <div className="page">
+                <CarePage
+                  onOpen={(threadId) => {
+                    setOpenThread(threadId);
+                    go("hop");
+                  }}
+                />
               </div>
             )}
             {page === "groups" && (

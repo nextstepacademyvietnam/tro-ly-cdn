@@ -71,7 +71,7 @@ export class AccountManager {
       isConnected: () => svc.isConnected(),
       labels: () => svc.channel.labels(),
       groupName: (threadId) => svc.channel.groupName(threadId),
-      sendText: (threadId, type, text) => svc.channel.sendText(threadId, type, text),
+      sendText: (threadId, type, text, opts) => svc.channel.sendText(threadId, type, text, opts),
       setLabel: (threadId, type, target, exclusive) => svc.channel.setLabel(threadId, type, target, exclusive),
       salutation: (userId) => svc.contacts.salutation(userId),
     };

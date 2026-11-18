@@ -139,6 +139,8 @@ export interface Account {
   unreadConversations: number;
   activeSchedules: number;
   trackedGroups: number;
+  /** Khách tới lượt chăm sóc chủ động trong hôm nay. */
+  careDue: number;
 }
 
 export interface Notice {
@@ -156,6 +158,43 @@ export interface Draft {
   text: string;
   handoff: boolean;
   createdAt: number;
+  /** "care" = tin chăm sóc chủ động do trợ lý tự soạn theo kế hoạch. */
+  origin?: "reply" | "care";
+}
+
+export type CareStatus = "active" | "paused" | "stopped";
+export interface CarePlan {
+  accountId: number;
+  threadId: string;
+  profileId: number | null;
+  profileName: string;
+  name: string;
+  lastMessageAt: number;
+  status: CareStatus;
+  stage: string;
+  facts: string;
+  summary: string;
+  needs: string;
+  goal: string;
+  everyDays: number;
+  nextAt: number | null;
+  reason: string;
+  stopReason: string;
+  locked: boolean;
+  analyzedAt: number;
+  lastCareAt: number;
+  careCount: number;
+}
+export interface CareLogEntry {
+  id: number;
+  kind: "analyze" | "draft" | "sent" | "skip" | "edit" | "stop" | "error";
+  text: string;
+  at: number;
+}
+export interface CareSettings {
+  enabled: boolean;
+  rules: string;
+  maxPerDay: number;
 }
 
 export interface ProfileFile {
@@ -174,6 +213,8 @@ export interface Profile {
   sendMode: "draft" | "auto";
   applies: "both" | "user" | "group";
   priority: number;
+  /** Chăm sóc khách chủ động của tính cách. */
+  care?: CareSettings;
   files: (ProfileFile & { created_at: number })[];
   faqs: import("./layers").Faq[];
   notes: import("./layers").TimelyNote[];

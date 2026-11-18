@@ -1,0 +1,60 @@
+/* Chăm sóc khách chủ động: mục ở cột thông tin Hộp thư, trang Chăm sóc, thẻ cài đặt ở Tính cách.
+   Màu theo token (DESIGN.md: Soft, Neutral); không thêm màu mới. */
+
+/* ----- Mục Chăm sóc ở cột thông tin ----- */
+.care-sec { gap: 10px; }
+.badge.care-status.active { background: var(--success-bg); color: var(--success); }
+.badge.care-status.paused { background: var(--warning-bg); color: var(--warning); }
+.badge.care-status.stopped { background: var(--neutral-bg); color: var(--neutral); }
+.care-next { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--primary-light); }
+.care-next > svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--primary-ink); }
+.care-next-t { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.care-why { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.care-goal { font-size: 13px; line-height: 1.5; }
+.care-k { font-size: 12px; font-weight: 500; color: var(--muted); }
+.care-goal .care-k { display: block; margin-bottom: 2px; }
+.care-lock { width: 13px; height: 13px; color: var(--muted); flex: none; }
+/* Hai nút thao tác lịch một hàng, "Phân tích lại" một hàng riêng rộng hết khối (cột thông tin chỉ ~270px). */
+.care-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.care-actions > * { width: 100%; }
+.care-actions > .pop-wrap > button { width: 100%; }
+.care-actions .care-reanalyze { grid-column: 1 / -1; }
+.care-profile { display: flex; flex-direction: column; gap: 6px; }
+.care-profile .link svg { width: 13px; height: 13px; }
+/* Nhãn trên, nội dung dưới: cột thông tin hẹp, hai cột làm nội dung bị bóp. */
+.care-dl { display: flex; flex-direction: column; margin: 0; font-size: 13px; line-height: 1.5; }
+.care-dl dt { font-size: 12px; font-weight: 500; color: var(--muted); }
+.care-dl dd { margin: 0 0 8px; overflow-wrap: anywhere; }
+.care-dl dd:last-child { margin-bottom: 0; }
+.care-pre { white-space: pre-line; }
+.care-edit { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: var(--background); }
+.care-field { display: grid; gap: 4px; font-weight: 400; font-size: 13px; }
+.care-field > span { font-size: 12px; font-weight: 500; color: var(--muted); }
+.care-field textarea { resize: vertical; font-size: 13px; }
+.care-pop { min-width: 260px; }
+.care-log summary { margin: 0; font-size: 12px; font-weight: 500; }
+.care-log ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.care-log li { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12px; }
+.care-log-when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.care-log-kind { font-weight: 500; }
+.care-log-kind.error { color: var(--error-strong); }
+.care-log-kind.sent { color: var(--success); }
+.care-log-text { grid-column: 1 / -1; color: color-mix(in srgb, var(--foreground) 80%, transparent); white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Thẻ nháp của tin chăm sóc trong khung hội thoại */
+.task-card.care-draft { border-color: color-mix(in srgb, var(--success) 35%, transparent); background: var(--success-bg); }
+.task-card.care-draft .task-head svg { color: var(--success); }
+
+/* ----- Trang Chăm sóc ----- */
+.care-page { display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
+.care-intro { font-size: 14px; max-width: 720px; }
+.care-seg { max-width: 560px; }
+/* Điện thoại: 4 ô lọc thành lưới 2×2, đọc hết số đếm, không phải cuộn ngang. */
+@media (max-width: 520px) { .ib-seg.care-seg { display: grid; grid-template-columns: 1fr 1fr; } }
+.care-list { padding: 0; overflow: hidden; }
+.care-rows { max-height: none; }
+.care-rows .ib-row-time { display: inline-flex; align-items: center; gap: 4px; }
+.care-empty { padding: 24px; }
+
+/* ----- Thẻ cài đặt ở trang Tính cách ----- */
+.care-settings textarea { resize: vertical; }

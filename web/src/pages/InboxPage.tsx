@@ -7,6 +7,7 @@ import {
   Hand,
   Info,
   ListFilter,
+  HeartHandshake,
   PencilLine,
   Search,
   Tag,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { type Account, type BotState, type Draft, type Profile, api } from "../api";
 import { ScheduleForm } from "../schedules/ScheduleForm";
+import { CareSection } from "../care/CareSection";
 import { ScheduleSidebar } from "../schedules/SchedulePanels";
 import { Avatar, Popover, fullDate, shortTime, timeAndDay, waitLevel, waitText } from "../ui";
 
@@ -121,8 +123,10 @@ export function InboxPage({
   mode,
   onModeChange,
   onGoAccounts,
+  initialThread,
 }: {
   account?: Account;
+  initialThread?: string | null;
   mode: "can" | "all";
   onModeChange: (m: "can" | "all") => void;
   onGoAccounts: () => void;
@@ -132,7 +136,7 @@ export function InboxPage({
   const [loadError, setLoadError] = useState(false);
   const [labelsAvailable, setLabelsAvailable] = useState(true);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialThread ?? null);
   const [showUser, setShowUser] = useState(true);
   const [showGroup, setShowGroup] = useState(true);
   const [botFilter, setBotFilter] = useState<BotFilter>("all");
@@ -490,6 +494,7 @@ export function InboxPage({
                 />
               )}
             </div>
+            {current.thread_type === "user" && <CareSection key={`care-${current.thread_id}`} threadId={current.thread_id} />}
           </aside>
         </>
       ) : (
@@ -756,10 +761,10 @@ function DraftList({ threadId, canSend, now, onSent, pollKey }: { threadId: stri
         const waited = now - d.createdAt;
         const level = waitLevel(waited);
         return (
-          <div key={d.id} className="task-card">
+          <div key={d.id} className={d.origin === "care" ? "task-card care-draft" : "task-card"}>
             <div className="task-head">
-              <PencilLine aria-hidden />
-              Trợ lý soạn nháp ·{" "}
+              {d.origin === "care" ? <HeartHandshake aria-hidden /> : <PencilLine aria-hidden />}
+              {d.origin === "care" ? "Tin chăm sóc chủ động" : "Trợ lý soạn nháp"} ·{" "}
               <span className={level ? "badge" : "badge task"} data-level={level || undefined}>
                 chờ {waitText(waited)}
               </span>

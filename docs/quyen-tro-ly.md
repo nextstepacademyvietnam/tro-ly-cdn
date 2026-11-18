@@ -148,6 +148,8 @@ Tin trợ lý tự mở lời (follow-up, chúc sinh nhật, nhắc lịch, chi�
 
 Thiệp sinh nhật Zalo chỉ là *gợi ý* cho chủ, không tự gửi lời chúc nếu chủ chưa bật chiến dịch sinh nhật.
 
+**Chăm sóc khách chủ động** (bật theo tính cách): trợ lý chỉ *soạn nháp* tin chăm sóc theo kế hoạch từng khách, chủ duyệt từng tin mới gửi — đó là bước duyệt của điều 1. Chỉ chat riêng có nhãn tính cách bật chăm sóc; bỏ qua khách có dấu Không nhắn chủ động, khách đang chờ người thật, khách vừa nói chuyện trong 12 giờ; không soạn trong 21:30–07:30 và không quá giới hạn tin chăm sóc mỗi ngày của tính cách. Tin chăm sóc gửi đi vẫn qua trần an toàn ở điều 4.
+
 ### A9. Các chốt chặn luôn bật
 
 - Bỏ qua tin do chính trợ lý gửi, tránh tự trả lời mình.

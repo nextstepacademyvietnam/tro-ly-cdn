@@ -317,6 +317,43 @@ const MIGRATIONS: string[] = [
      fetched_at INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (account_id, user_id)
    );`,
+  // Chăm sóc khách chủ động: hồ sơ + kế hoạch từng khách (AI đề xuất, chủ sửa), lịch sử chăm sóc,
+  // nháp có nguồn gốc (trả lời / chăm sóc), cài đặt chăm sóc theo tính cách.
+  `CREATE TABLE care_plans (
+     account_id INTEGER NOT NULL,
+     thread_id TEXT NOT NULL,
+     profile_id INTEGER,
+     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'stopped')),
+     stage TEXT NOT NULL DEFAULT '',
+     facts TEXT NOT NULL DEFAULT '',
+     summary TEXT NOT NULL DEFAULT '',
+     needs TEXT NOT NULL DEFAULT '',
+     goal TEXT NOT NULL DEFAULT '',
+     every_days INTEGER NOT NULL DEFAULT 3,
+     next_at INTEGER,
+     reason TEXT NOT NULL DEFAULT '',
+     stop_reason TEXT NOT NULL DEFAULT '',
+     locked INTEGER NOT NULL DEFAULT 0,
+     analyzed_at INTEGER NOT NULL DEFAULT 0,
+     last_care_at INTEGER NOT NULL DEFAULT 0,
+     care_count INTEGER NOT NULL DEFAULT 0,
+     updated_at INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (account_id, thread_id)
+   );
+   CREATE INDEX care_plans_due ON care_plans (status, next_at);
+   CREATE TABLE care_log (
+     id INTEGER PRIMARY KEY,
+     account_id INTEGER NOT NULL,
+     thread_id TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     text TEXT NOT NULL DEFAULT '',
+     at INTEGER NOT NULL
+   );
+   CREATE INDEX care_log_thread ON care_log (account_id, thread_id, at DESC);
+   ALTER TABLE drafts ADD COLUMN origin TEXT NOT NULL DEFAULT 'reply';
+   ALTER TABLE profiles ADD COLUMN care_enabled INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE profiles ADD COLUMN care_rules TEXT NOT NULL DEFAULT '';
+   ALTER TABLE profiles ADD COLUMN care_max_per_day INTEGER NOT NULL DEFAULT 20;`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { type Account, type Profile, api, ApiError, readAsBase64 } from "../api";
+import { type Account, type CareSettings, type Profile, api, ApiError, readAsBase64 } from "../api";
 import {
   EMPTY_IDENTITY,
   type Faq,
@@ -296,6 +296,8 @@ function ProfileEditor({
             </div>
           )}
         </div>
+
+        {profile && <CareSettingsCard key={`care-${profile.id}`} profile={profile} tagCount={tagCount} />}
 
         {/* ---------- Tầng 0 ---------- */}
         {profile && (
@@ -932,5 +934,85 @@ function TagPicker({ value, labels, connected, onChange }: { value: string; labe
       )}
       {!connected && <span className="muted small">Zalo chưa kết nối nên chưa đọc được danh sách nhãn — gõ đúng tên nhãn.</span>}
     </label>
+  );
+}
+
+const CARE_RULES_HINT = `VD:
+- Khách mới hỏi, đang tìm hiểu: 2–3 ngày hỏi thăm một lần, gửi thêm thông tin đúng điều khách quan tâm
+- Khách hẹn trả lời / đang cân nhắc: nhắn đúng ngày hẹn, nhắc ưu đãi còn hạn
+- Khách đã đăng ký, đã mua: hỏi thăm sau 3 ngày, rồi 7 ngày, rồi mỗi tháng
+- Không nhắn quá 3 lần liền mà khách không trả lời`;
+
+/** Thẻ "Chăm sóc chủ động" của một tính cách: bật / tắt, cách chăm sóc, giới hạn mỗi ngày. */
+function CareSettingsCard({ profile, tagCount }: { profile: Profile; tagCount: number }) {
+  const init = profile.care ?? { enabled: false, rules: "", maxPerDay: 20 };
+  const [care, setCare] = useState<CareSettings>(init);
+  const [saved, setSaved] = useState<CareSettings>(init);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const dirty = JSON.stringify(care) !== JSON.stringify(saved);
+  const save = async (next = care) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const r = await api<{ care: CareSettings }>(`/api/profiles/${profile.id}/care`, { method: "PUT", body: next });
+      setCare(r.care);
+      setSaved(r.care);
+      setNotice({
+        ok: true,
+        text: r.care.enabled
+          ? `Đã bật. Trợ lý sẽ lần lượt đọc lại hội thoại của ${tagCount || "các"} khách gắn nhãn này và lập kế hoạch (khoảng 1 khách mỗi 30 giây).`
+          : "Đã tắt chăm sóc chủ động cho tính cách này.",
+      });
+    } catch (err) {
+      setNotice({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card stack care-settings">
+      <div className="row between">
+        <div className="grow">
+          <strong>Chăm sóc chủ động</strong>
+          <p className="muted small">
+            Với mỗi khách chat riêng gắn nhãn tính cách này, trợ lý ghi hồ sơ, tóm tắt những gì đã trao đổi và đặt lịch chăm sóc tiếp theo. Tới
+            lịch, trợ lý soạn sẵn tin vào mục Cần xử lý để bạn duyệt, không tự gửi.
+          </p>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={care.enabled}
+            disabled={busy}
+            onChange={(e) => {
+              const next = { ...care, enabled: e.target.checked };
+              setCare(next);
+              void save(next);
+            }}
+          />
+          {care.enabled ? "Đang bật" : "Đang tắt"}
+        </label>
+      </div>
+      <label className="field">
+        <span>Cách chăm sóc của tính cách này</span>
+        <textarea rows={5} value={care.rules} placeholder={CARE_RULES_HINT} onChange={(e) => setCare({ ...care, rules: e.target.value })} />
+      </label>
+      <label className="inline">
+        Tối đa tin chăm sóc soạn mỗi ngày
+        <input type="number" min={1} max={200} value={care.maxPerDay} style={{ width: 90 }} onChange={(e) => setCare({ ...care, maxPerDay: Number(e.target.value) })} />
+      </label>
+      {notice && <div className={`notice small ${notice.ok ? "ok" : "bad"}`}>{notice.text}</div>}
+      {dirty && (
+        <div className="row">
+          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
+            {busy ? "Đang lưu…" : "Lưu cách chăm sóc"}
+          </button>
+          <button type="button" className="ghost" disabled={busy} onClick={() => setCare(saved)}>
+            Huỷ
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
