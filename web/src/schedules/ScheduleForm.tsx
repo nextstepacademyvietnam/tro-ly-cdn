@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, readAsBase64 } from "../api";
+import { api, uploadImage } from "../api";
 import { type Recurrence, type RecurrenceType, type Schedule, type Target, vnToday } from "./types";
 
 const WEEKDAYS: { v: number; label: string }[] = [
@@ -129,7 +129,7 @@ export function ScheduleForm({
     try {
       for (const f of Array.from(files)) {
         if (images.length >= MAX_IMAGES) throw new Error(`Tối đa ${MAX_IMAGES} ảnh`);
-        const m = await api<{ id: number; url: string }>("/api/media", { body: { name: f.name, dataBase64: await readAsBase64(f) } });
+        const m = await uploadImage(f);
         setImages((list) => (list.length < MAX_IMAGES ? [...list, m] : list));
       }
     } catch (err) {

@@ -109,6 +109,7 @@ describe("GroupTracker", () => {
     let members = ["own", "boss", "a", "b"];
     const sent: { kind: string; to: string; text: string; mentions?: unknown[] }[] = [];
     let connected = true;
+    let blockStrangers = false;
     const channel: GroupChannel = {
       isConnected: () => connected,
       ownId: () => "own",
@@ -116,12 +117,17 @@ describe("GroupTracker", () => {
       groupDetail: async (): Promise<GroupDetail> => ({ id: "g1", name: "Lớp K12", totalMember: members.length, memberIds: [...members], adminIds: ["boss"], creatorId: "boss" }),
       memberNames: async (ids) => new Map(ids.map((id) => [id, `Tên ${id}`])),
       sendMention: async (gid, text, mentions) => (sent.push({ kind: "group", to: gid, text, mentions }), "m1"),
-      sendText: async (uid, text) => (sent.push({ kind: "private", to: uid, text }), ["m2"]),
+      sendText: async (uid, text) => {
+        if (blockStrangers) throw new Error("Người nhận chặn tin từ người lạ");
+        sent.push({ kind: "private", to: uid, text });
+        return ["m2"];
+      },
+      sendFriendRequest: async (uid, message) => void sent.push({ kind: "friend", to: uid, text: message }),
       sendImages: async () => [],
       recordOutbound: () => undefined,
     };
     const tracker = new GroupTracker(db, { channel: () => channel, accountIds: () => [1], isPaused: () => false, mediaPath: () => null, rand: () => 0 });
-    return { db, tracker, sent, setMembers: (m: string[]) => (members = m), setConnected: (c: boolean) => (connected = c) };
+    return { db, tracker, sent, setMembers: (m: string[]) => (members = m), setConnected: (c: boolean) => (connected = c), setBlockStrangers: (b: boolean) => (blockStrangers = b) };
   }
   const join = (ids: string[], at: number, actor = "") => ({
     kind: "join" as const,
@@ -152,6 +158,35 @@ describe("GroupTracker", () => {
     t.setMembers(["own", "boss", "a", "z"]);
     expect(await t.tracker.reconcile(1, "g1", T("2026-11-12"))).toEqual([{ joined: 1, left: 1 }]);
     expect(t.tracker.events(1, "g1").map((e) => [e.kind, e.user_id, e.via])).toEqual([["leave", "b", "diff"], ["join", "z", "diff"]]);
+  });
+
+  it("chào riêng kèm lời mời kết bạn: bật thì gửi (kể cả khi tin chào bị chặn), tắt thì không", async () => {
+    const t = setup();
+    await t.tracker.track(1, "g1", T("2026-11-18", "09:00"));
+    const base = { enabled: true, group: { enabled: false }, private: { enabled: true, minDelayMin: 1, maxDelayMin: 1 } };
+    t.tracker.setWelcome(1, "g1", { ...base, private: { ...base.private, friendRequest: true, friendMessage: "Chào {ten}, kết bạn với mình trong {ten_nhom} nhé" } });
+    const now = T("2026-11-18", "10:00");
+    await t.tracker.onChange(1, join(["x"], now), now);
+    await t.tracker.tick(now + 5 * MIN);
+    expect(t.sent.map((s) => [s.kind, s.to])).toEqual([["private", "x"], ["friend", "x"]]);
+    expect(t.sent.find((s) => s.kind === "friend")?.text).toBe("Chào Tên x, kết bạn với mình trong Lớp K12 nhé");
+    expect(t.tracker.welcomeLog(1, "g1")[0]).toMatchObject({ status: "sent", error: "Đã gửi lời mời kết bạn" });
+
+    // y chặn tin người lạ: tin chào lỗi nhưng lời mời kết bạn vẫn đi.
+    t.setBlockStrangers(true);
+    await t.tracker.onChange(1, join(["y"], now + 10 * MIN), now + 10 * MIN);
+    await t.tracker.tick(now + 20 * MIN);
+    expect(t.sent.filter((s) => s.to === "y").map((s) => s.kind)).toEqual(["friend"]);
+    const y = t.tracker.welcomeLog(1, "g1").find((w) => (JSON.parse(w.members) as { id: string }[])[0]!.id === "y")!;
+    expect(y.status).toBe("failed");
+    expect(y.error).toContain("Đã gửi lời mời kết bạn");
+
+    // Tắt: chỉ còn tin chào.
+    t.setBlockStrangers(false);
+    t.tracker.setWelcome(1, "g1", { ...base, private: { ...base.private, friendRequest: false } });
+    await t.tracker.onChange(1, join(["z"], now + 30 * MIN), now + 30 * MIN);
+    await t.tracker.tick(now + 40 * MIN);
+    expect(t.sent.filter((s) => s.to === "z").map((s) => s.kind)).toEqual(["private"]);
   });
 
   it("người vào lúc mất kết nối: chào nếu lần kiểm tra trước dưới 24 giờ; hai lượt đối chiếu song song không ghi trùng", async () => {

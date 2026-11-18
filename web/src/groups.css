@@ -222,3 +222,10 @@
 /* Nền tối: núm công tắc không trắng tinh (M32). */
 .dark .switch i { background: var(--foreground); }
 .dark .switch[aria-checked="true"] i { background: var(--primary-foreground); }
+
+/* Lời mời kết bạn kèm lời chào riêng */
+.grp-friend { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--background); }
+.grp-friend-head { display: flex; align-items: flex-start; gap: 12px; }
+.grp-friend .grp-label { margin-bottom: 2px; }
+.grp-friend textarea { resize: none; }
+.grp-thumb-busy { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.2; }

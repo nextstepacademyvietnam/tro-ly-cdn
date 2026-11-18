@@ -19,7 +19,7 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { type Account, api, getCurrentAccount, readAsBase64 } from "../api";
+import { type Account, api, getCurrentAccount, uploadImage } from "../api";
 import { Popover } from "../ui";
 
 // ---------- Kiểu dữ liệu (khớp src/server/routes/groups.ts) ----------
@@ -68,7 +68,17 @@ interface GroupEvent {
 interface WelcomeConfig {
   enabled: boolean;
   group: { enabled: boolean; templates: string[]; imageIds: number[]; batchSeconds: number };
-  private: { enabled: boolean; templates: string[]; imageIds: number[]; minDelayMin: number; maxDelayMin: number; perHour: number; perDay: number };
+  private: {
+    enabled: boolean;
+    templates: string[];
+    imageIds: number[];
+    minDelayMin: number;
+    maxDelayMin: number;
+    perHour: number;
+    perDay: number;
+    friendRequest: boolean;
+    friendMessage: string;
+  };
   quietStart: string;
   quietEnd: string;
   skipRejoinDays: number;
@@ -736,17 +746,21 @@ function NumberBox({ value, onChange, min, max, width = 56, label }: { value: nu
 
 function Images({ ids, onChange }: { ids: number[]; onChange: (ids: number[]) => void }) {
   const [busy, setBusy] = useState(false);
-  const add = async (files: FileList | null) => {
-    if (!files?.length) return;
+  const [error, setError] = useState("");
+  const add = async (input: HTMLInputElement) => {
+    const files = [...(input.files ?? [])];
+    input.value = ""; // chọn lại đúng ảnh vừa lỗi vẫn kích hoạt được
+    if (!files.length) return;
     setBusy(true);
+    setError("");
+    const out = [...ids];
     try {
-      const out = [...ids];
-      for (const f of [...files].slice(0, 10 - ids.length)) {
-        const m = await api<{ id: number }>("/api/media", { body: { name: f.name, dataBase64: await readAsBase64(f) } });
-        out.push(m.id);
-      }
-      onChange(out);
+      for (const f of files.slice(0, 10 - ids.length)) out.push((await uploadImage(f)).id);
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
+      // Ảnh tải được trước lúc lỗi vẫn giữ lại.
+      if (out.length !== ids.length) onChange(out);
       setBusy(false);
     }
   };
@@ -764,11 +778,12 @@ function Images({ ids, onChange }: { ids: number[]; onChange: (ids: number[]) =>
         ))}
         {ids.length < 10 && (
           <label className="grp-thumb add" aria-label="Thêm ảnh" title="Thêm ảnh">
-            <ImagePlus aria-hidden />
-            <input type="file" accept="image/*" multiple hidden disabled={busy} onChange={(e) => void add(e.target.files)} />
+            {busy ? <span className="grp-thumb-busy">Đang tải…</span> : <ImagePlus aria-hidden />}
+            <input type="file" accept="image/*" multiple hidden disabled={busy} onChange={(e) => void add(e.currentTarget)} />
           </label>
         )}
       </div>
+      {error && <div className="notice bad small">{error}</div>}
     </div>
   );
 }
@@ -896,6 +911,29 @@ function WelcomeTab({ base, onSaved }: { base: string; onSaved: () => void }) {
         <div className="grp-label">Mẫu tin</div>
         <Templates list={cfg.private.templates} onChange={(templates) => setP({ templates })} />
         <Images ids={cfg.private.imageIds} onChange={(imageIds) => setP({ imageIds })} />
+        <div className="grp-friend">
+          <div className="grp-friend-head">
+            <div className="grow">
+              <div className="grp-label">Gửi kèm lời mời kết bạn</div>
+              <p className="small muted">Người mới nhận được lời mời ngay cả khi họ chặn tin nhắn từ người lạ. Đã là bạn thì bỏ qua.</p>
+            </div>
+            <Switch on={cfg.private.friendRequest} label="Gửi kèm lời mời kết bạn" onChange={(v) => setP({ friendRequest: v })} />
+          </div>
+          {cfg.private.friendRequest && (
+            <>
+              <textarea
+                rows={2}
+                maxLength={150}
+                value={cfg.private.friendMessage}
+                onChange={(e) => setP({ friendMessage: e.target.value })}
+                aria-label="Lời nhắn kèm lời mời kết bạn"
+              />
+              <div className="small muted">
+                {cfg.private.friendMessage.length}/150 ký tự · dùng được {"{ten}"}, {"{xung_ho}"}, {"{ten_nhom}"}
+              </div>
+            </>
+          )}
+        </div>
         <div className="grp-two">
           <div className="grp-inline">
             Gửi sau

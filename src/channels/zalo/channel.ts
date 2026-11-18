@@ -403,6 +403,20 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   /**
+   * Gửi lời mời kết bạn kèm lời nhắn (Zalo cắt ở 150 ký tự). Đã là bạn hoặc Zalo từ chối thì ném lỗi
+   * kèm mã của Zalo để ghi vào nhật ký gửi.
+   */
+  async sendFriendRequest(userId: string, message: string): Promise<void> {
+    const api = this.requireApi();
+    try {
+      await api.sendFriendRequest(message.slice(0, 150), userId);
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      throw new Error(`${(err as Error).message}${code ? ` (mã ${code})` : ""}`);
+    }
+  }
+
+  /**
    * Gửi tin chữ. Chờ người kia ngừng gõ, hiện "đang soạn tin", giữ nhịp an toàn.
    * Trả về id các tin đã gửi (tin dài được chia nhỏ).
    */

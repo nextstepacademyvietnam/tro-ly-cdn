@@ -95,6 +95,7 @@ export class AccountManager {
       genders: (ids) => svc.contacts.ensure(ids),
       sendMention: (groupId, text, mentions) => ch.sendMention(groupId, text, mentions),
       sendText: (userId, text) => ch.sendText(userId, "user", text),
+      sendFriendRequest: (userId, message) => ch.sendFriendRequest(userId, message),
       sendImages: (threadId, type, paths) => ch.sendImages(threadId, type, paths),
       recordOutbound: (threadId, type, text, msgId, name) => svc.inbox.recordOutbound(threadId, type, text, "ai", msgId, Date.now(), "welcome", name),
     };

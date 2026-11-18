@@ -26,7 +26,54 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return data as T;
 }
 
-export function readAsBase64(file: File): Promise<string> {
+/** Ảnh nhỏ hơn mức này và cạnh dài không quá MAX_IMAGE_SIDE thì tải nguyên bản. */
+const SMALL_IMAGE_BYTES = 1.5 * 1024 * 1024;
+const MAX_IMAGE_SIDE = 2560;
+
+/**
+ * Thu nhỏ ảnh lớn ngay trên trình duyệt (cạnh dài tối đa 2560 px, JPEG 85%) trước khi tải lên.
+ * Ảnh gốc điện thoại / ảnh thiết kế PNG có thể quá giới hạn của server (413); Zalo cũng tự nén khi gửi.
+ * GIF giữ nguyên để không mất chuyển động. Không đọc được ảnh thì trả file gốc.
+ */
+async function shrinkImage(file: File): Promise<{ name: string; blob: Blob }> {
+  if (!file.type.startsWith("image/") || file.type === "image/gif") return { name: file.name, blob: file };
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return { name: file.name, blob: file };
+  }
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= SMALL_IMAGE_BYTES) {
+    bitmap.close();
+    return { name: file.name, blob: file };
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff"; // nền trắng cho ảnh PNG trong suốt khi đổi sang JPEG
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.85));
+  if (!blob) return { name: file.name, blob: file };
+  return { name: file.name.replace(/\.[^.]+$/, "") + ".jpg", blob };
+}
+
+/** Tải một ảnh lên kho ảnh của app (dùng cho lời chào, lịch gửi). Ném lỗi dễ hiểu khi không được. */
+export async function uploadImage(file: File): Promise<{ id: number; url: string; name: string }> {
+  if (!file.type.startsWith("image/")) throw new Error(`"${file.name}" không phải ảnh`);
+  const { name, blob } = await shrinkImage(file);
+  try {
+    return await api<{ id: number; url: string; name: string }>("/api/media", { body: { name, dataBase64: await readAsBase64(blob) } });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 413) throw new Error(`Ảnh "${file.name}" quá lớn, hãy chọn ảnh dưới 10 MB`);
+    throw err;
+  }
+}
+
+export function readAsBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result).split(",")[1] ?? "");

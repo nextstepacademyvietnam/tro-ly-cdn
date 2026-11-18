@@ -5,6 +5,7 @@ import {
   type Bucket,
   type EventRow,
   type WelcomeConfig,
+  FRIEND_MESSAGE_MAX,
   afterQuiet,
   computeStats,
   diffMembers,
@@ -25,6 +26,8 @@ export interface GroupChannel {
   genders?(ids: string[]): Promise<Map<string, string>>;
   sendMention(groupId: string, text: string, mentions: { pos: number; uid: string; len: number }[]): Promise<string | null>;
   sendText(userId: string, text: string): Promise<string[]>;
+  /** Gửi lời mời kết bạn kèm lời nhắn. Không có thì bỏ qua tuỳ chọn kết bạn. */
+  sendFriendRequest?(userId: string, message: string): Promise<void>;
   sendImages(threadId: string, type: "user" | "group", paths: string[]): Promise<string[]>;
   recordOutbound(threadId: string, type: "user" | "group", text: string, msgId: string | null, name?: string): void;
 }
@@ -422,15 +425,41 @@ export class GroupTracker {
         ch.recordOutbound(w.group_id, "group", text, id, g.name);
       } else {
         const m = members[0]!;
-        if (images.length) await ch.sendImages(m.id, "user", images);
-        const ids = await ch.sendText(m.id, text);
-        ch.recordOutbound(m.id, "user", text, ids[0] ?? null, m.name);
+        let messageError = "";
+        try {
+          if (images.length) await ch.sendImages(m.id, "user", images);
+          const ids = await ch.sendText(m.id, text);
+          ch.recordOutbound(m.id, "user", text, ids[0] ?? null, m.name);
+        } catch (err) {
+          messageError = (err as Error).message;
+        }
+        // Lời mời kết bạn gửi cả khi tin chào bị chặn (người chặn tin người lạ vẫn thấy lời mời).
+        const friend = cfg.private.friendRequest ? await this.sendFriendRequest(ch, m, cfg, g, members) : "";
+        if (messageError) {
+          this.finish(w.id, "failed", now, text, [messageError, friend].filter(Boolean).join(" · "));
+          this.deps.log?.("Không gửi được lời chào", { id: w.id, err: messageError });
+        } else {
+          this.finish(w.id, "sent", now, text, friend);
+        }
+        return;
       }
       this.finish(w.id, "sent", now, text);
     } catch (err) {
       // Người chặn tin người lạ, Zalo từ chối…: ghi lại, không thử lại liên tục.
       this.finish(w.id, "failed", now, text, (err as Error).message);
       this.deps.log?.("Không gửi được lời chào", { id: w.id, err: (err as Error).message });
+    }
+  }
+
+  /** Gửi lời mời kết bạn; trả câu ghi vào nhật ký gửi. Lỗi (đã là bạn, Zalo từ chối…) không làm hỏng lời chào. */
+  private async sendFriendRequest(ch: GroupChannel, m: Member & { gender?: string }, cfg: WelcomeConfig, g: TrackedGroup, members: (Member & { gender?: string })[]): Promise<string> {
+    if (!ch.sendFriendRequest) return "";
+    const { text } = renderWelcome(cfg.private.friendMessage, { members: [m], groupName: g.name, memberCount: g.member_count, adderName: members[0]?.actorName ?? "" }, false);
+    try {
+      await ch.sendFriendRequest(m.id, text.slice(0, FRIEND_MESSAGE_MAX));
+      return "Đã gửi lời mời kết bạn";
+    } catch (err) {
+      return `Lời mời kết bạn lỗi: ${(err as Error).message}`;
     }
   }
 
