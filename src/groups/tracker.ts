@@ -66,6 +66,8 @@ type Member = { id: string; name: string; actorName?: string };
 const LATE_MS = 6 * 3_600_000;
 export const TICK_MS = 15_000;
 export const RECONCILE_EVERY_MS = 6 * 3_600_000;
+/** Người vào lúc mất kết nối vẫn được chào nếu lần kiểm tra trước của nhóm cách đây không quá 24 giờ. */
+export const DIFF_WELCOME_WINDOW_MS = 24 * 3_600_000;
 
 /**
  * Theo dõi nhóm Zalo: ghi ai vào/rời (sự kiện tức thời + đối chiếu danh sách định kỳ),
@@ -74,6 +76,7 @@ export const RECONCILE_EVERY_MS = 6 * 3_600_000;
 export class GroupTracker {
   private timer: NodeJS.Timeout | null = null;
   private reconcileTimer: NodeJS.Timeout | null = null;
+  private readonly reconciling = new Map<string, Promise<{ joined: number; left: number }[]>>();
   private ticking = false;
   /** Chủ / phó nhóm theo từng nhóm, để không chào họ. */
   private readonly admins = new Map<string, Set<string>>();
@@ -210,10 +213,22 @@ export class GroupTracker {
   }
 
   /**
-   * Đối chiếu danh sách (lúc bật app, định kỳ, hoặc bấm tay). Ai vào/rời lúc app tắt được ghi
-   * với via = "diff" và giờ là lúc phát hiện. Không chào những người này (không rõ họ vào lúc nào).
+   * Đối chiếu danh sách (lúc bật app, sau khi nối lại Zalo, định kỳ, hoặc bấm tay). Ai vào/rời lúc app tắt
+   * hay mất kết nối được ghi với via = "diff" và giờ là lúc phát hiện. Người vào được chào nếu lần kiểm tra
+   * trước của nhóm cách đây không quá DIFF_WELCOME_WINDOW_MS (họ mới vào gần đây); xa hơn thì không chào
+   * vì có thể họ đã ở nhóm từ lâu.
+   * Mỗi tài khoản chỉ một lượt chạy một lúc: hai lượt song song cùng thấy một người mới và ghi trùng sự kiện.
    */
-  async reconcile(accountId: number, groupId?: string, now = Date.now()): Promise<{ joined: number; left: number }[]> {
+  reconcile(accountId: number, groupId?: string, now = Date.now()): Promise<{ joined: number; left: number }[]> {
+    const key = `${accountId}:${groupId ?? "*"}`;
+    const running = this.reconciling.get(key);
+    if (running) return running;
+    const p = this.doReconcile(accountId, groupId, now).finally(() => this.reconciling.delete(key));
+    this.reconciling.set(key, p);
+    return p;
+  }
+
+  private async doReconcile(accountId: number, groupId: string | undefined, now: number): Promise<{ joined: number; left: number }[]> {
     const ch = this.deps.channel(accountId);
     if (!ch?.isConnected()) return [];
     const groups = groupId ? [this.group(accountId, groupId)].filter(Boolean) as TrackedGroup[] : this.tracked(accountId);
@@ -245,6 +260,9 @@ export class GroupTracker {
         } catch (err) {
           this.db.exec("ROLLBACK");
           throw err;
+        }
+        if (d.joined.length && g.reconciled_at && now - g.reconciled_at <= DIFF_WELCOME_WINDOW_MS) {
+          this.queueWelcome(accountId, g.group_id, d.joined.map((id) => ({ id, name: names.get(id) ?? "" })), now);
         }
         out.push({ joined: d.joined.length, left: d.left.length });
       } catch (err) {

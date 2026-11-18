@@ -73,6 +73,10 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   private lockFile: string;
   private readonly credentialsKey: string;
   private labelsCache: { at: number; data: unknown } | null = null;
+  /** Tự nối lại khi mất kết nối (rớt mạng, máy ngủ): thư viện Zalo chỉ tự thử lại với vài mã đóng của máy chủ. */
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempt = 0;
+  private stopped = false;
 
   constructor(private readonly settings: Settings, dataDir: string, readonly accountId = 1) {
     super();
@@ -152,7 +156,36 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       .finally(() => (this.loginAbort = null));
   }
 
+  /** Chờ trước lần tự nối lại thứ n: 10 giây, 30 giây, 1, 2 phút, rồi 5 phút một lần. */
+  static reconnectDelay(attempt: number): number {
+    return [10_000, 30_000, 60_000, 120_000][attempt] ?? 300_000;
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer || this.stopped) return;
+    const wait = ZaloChannel.reconnectDelay(this.reconnectAttempt++);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.stopped || this.api || this.status.state === "logged_out" || this.status.state === "connected") return;
+      this.connect().catch(() => {
+        // Còn lỗi (mạng chưa có, Zalo chưa nhận): giữ thông báo dễ hiểu và hẹn lần sau.
+        if (this.stopped || this.status.state === "logged_out") return;
+        const next = Math.round(ZaloChannel.reconnectDelay(this.reconnectAttempt) / 60_000) || 1;
+        this.setStatus({ state: "error", error: `Mất kết nối Zalo. App tự thử lại sau ${next} phút, hoặc bấm Kết nối lại.` });
+        this.scheduleReconnect();
+      });
+    }, wait);
+    this.reconnectTimer.unref?.();
+  }
+
+  private cancelReconnect() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
   async connect(): Promise<void> {
+    this.cancelReconnect();
+    this.stopped = false;
     const creds = this.settings.getSecret<Credentials>(this.credentialsKey);
     if (!creds) {
       this.setStatus({ state: "logged_out" });
@@ -221,9 +254,15 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
           ownName,
           error: "Zalo Web đang được mở ở nơi khác nên phiên của trợ lý bị ngắt. Đóng Zalo Web kia rồi bấm Kết nối lại.",
         });
-      } else if (this.status.state !== "logged_out") {
-        this.setStatus({ state: "error", ownId, ownName, error: "Mất kết nối Zalo. Bấm Kết nối lại." });
+      } else if (this.status.state !== "logged_out" && !this.stopped) {
+        // Rớt mạng / máy ngủ dậy: tự nối lại, không bắt chủ phải bấm. Tin và người vào nhóm trong lúc mất
+        // kết nối thì lượt đối chiếu nhóm sau khi nối lại sẽ bắt bù.
+        this.setStatus({ state: "reconnecting", ownId, ownName, error: "Mất kết nối Zalo, đang tự nối lại…" });
+        this.scheduleReconnect();
       }
+    });
+    api.listener.on("connected", () => {
+      this.reconnectAttempt = 0;
     });
 
     api.listener.start({ retryOnClose: true });
@@ -240,6 +279,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   async logout(): Promise<void> {
+    this.cancelReconnect();
     this.loginAbort?.();
     this.setStatus({ state: "logged_out" });
     this.stopListener();
@@ -248,6 +288,8 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
+    this.cancelReconnect();
     this.stopListener();
     this.releaseLock();
   }

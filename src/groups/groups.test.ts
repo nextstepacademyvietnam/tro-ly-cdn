@@ -154,6 +154,28 @@ describe("GroupTracker", () => {
     expect(t.tracker.events(1, "g1").map((e) => [e.kind, e.user_id, e.via])).toEqual([["leave", "b", "diff"], ["join", "z", "diff"]]);
   });
 
+  it("người vào lúc mất kết nối: chào nếu lần kiểm tra trước dưới 24 giờ; hai lượt đối chiếu song song không ghi trùng", async () => {
+    const t = setup();
+    await t.tracker.track(1, "g1", T("2026-11-18", "09:00"));
+    t.tracker.setWelcome(1, "g1", { enabled: true, group: { enabled: true, batchSeconds: 120 }, private: { enabled: false } });
+    // Rớt kết nối 11:56–15:40, z vào nhóm trong lúc đó; hai lượt đối chiếu chạy cùng lúc khi nối lại.
+    t.setMembers(["own", "boss", "a", "b", "z"]);
+    const now = T("2026-11-18", "15:40");
+    const [r1, r2] = await Promise.all([t.tracker.reconcile(1, undefined, now), t.tracker.reconcile(1, undefined, now)]);
+    expect(r1).toEqual([{ joined: 1, left: 0 }]);
+    expect(r2).toBe(r1);
+    expect(t.tracker.events(1, "g1").filter((e) => e.user_id === "z")).toHaveLength(1);
+    const queued = t.db.prepare("SELECT kind, members FROM group_welcomes").all() as { kind: string; members: string }[];
+    expect(queued).toHaveLength(1);
+    expect(JSON.parse(queued[0]!.members).map((m: { id: string }) => m.id)).toEqual(["z"]);
+
+    // Lần kiểm tra trước đã quá 24 giờ (app tắt mấy ngày): không chào, vì không biết họ vào lúc nào.
+    t.setMembers(["own", "boss", "a", "b", "z", "w"]);
+    await t.tracker.reconcile(1, "g1", T("2026-11-20", "09:00"));
+    expect(t.tracker.events(1, "g1").some((e) => e.user_id === "w")).toBe(true);
+    expect(t.db.prepare("SELECT COUNT(*) AS n FROM group_welcomes").get()).toMatchObject({ n: 1 });
+  });
+
   it("luồng chào: gom người vào cùng đợt, tag tên, bỏ quản trị và người đã rời, không chào lại", async () => {
     const t = setup();
     await t.tracker.track(1, "g1", T("2026-11-11", "09:00"));
