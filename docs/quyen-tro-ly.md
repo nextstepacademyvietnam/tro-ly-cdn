@@ -161,7 +161,10 @@ Thiệp sinh nhật Zalo chỉ là *gợi ý* cho chủ, không tự gửi lời
 ### A10. Dữ liệu
 
 - Tin nhắn và hộp thư chỉ lưu trên máy chạy app.
-- AI chỉ nhận: khung chung, mô tả và tài liệu của **đúng vai trò** đang áp dụng, và **lịch sử của đúng hội thoại đang trả lời** (tối đa 30 tin gần nhất). Không đưa tin của hội thoại khác vào.
+- Khi **trả lời khách**, AI chỉ nhận: khung chung, mô tả và tài liệu của **đúng vai trò** đang áp dụng, và **lịch sử của đúng hội thoại đang trả lời** (tối đa 30 tin gần nhất). Không đưa tin của hội thoại khác vào.
+- Hai việc nền chỉ ra **gợi ý cho chủ**, không bao giờ nhắn khách:
+  - **Gợi ý gắn nhãn**: AI đọc tối đa 20 tin gần nhất của một khách chat riêng *chưa có nhãn trợ lý*, cùng mô tả ngắn các tính cách, để đoán khách thuộc tính cách nào hay "không" (người nhà, nội bộ, đối tác). Mỗi khách xét một lần; khách nhắn lại sau một ngày mới xét lại.
+  - **Học hỏi đáp**: AI đọc các lượt *khách hỏi → chủ trả lời* (chủ tự gõ, hoặc chủ sửa nháp trợ lý) trong 30 ngày, ở chat riêng chưa có nhãn hoặc có nhãn của chính tính cách đó; bỏ nhóm và hội thoại "Không bot". AI được dặn bỏ tên, số điện thoại, số tài khoản. Kết quả là gợi ý chờ chủ duyệt.
 - Phiên đăng nhập Zalo và API key được mã hoá.
 
 ---
@@ -284,6 +287,8 @@ Chủ **không** viết được gì để nới lỏng Phần A. Nếu mô tả
 | A6 chủ tiếp quản | `Inbox.lastOwnerAt()` < 30 phút; chủ nhắn → nháp đang chờ bị thay |
 | A7 từ chối nhận tin | `conversations.no_proactive`; nhóm "trợ lý dừng lại" → gắn nhãn tắt |
 | A8 nhắn chủ động | `SendPacer` + lịch gửi (chủ đặt tay) |
+| Khách chờ lâu, nhờ trợ lý soạn | `Inbox.waitingReplies()` + `core/waiting.ts` (30 phút, bỏ tin khép chuyện); `Replier.draftFor()` luôn ra nháp |
+| A10 gợi ý nhãn, học hỏi đáp | `assist/service.ts` (một lần gọi AI mỗi phút), bảng `faq_suggestions`, `drafts.original_text` |
 | A9 chốt chặn | `MessageBatcher` gom 7 giây, bỏ tin cũ > 10 phút, lỗi → im + báo chủ |
 | Lệnh chủ, dừng khẩn cấp | `isOwnerCommandChannel()`; `accounts.paused`; nút Tạm dừng toàn bộ |
 

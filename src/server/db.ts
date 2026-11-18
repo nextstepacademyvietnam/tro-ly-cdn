@@ -365,6 +365,27 @@ const MIGRATIONS: string[] = [
      at INTEGER NOT NULL,
      PRIMARY KEY (account_id, thread_id)
    );`,
+  // Đợt 1 "nhân viên thật": giữ bản AI soạn gốc khi chủ sửa nháp (để học), khách chờ trả lời lâu
+  // (chủ bấm "Không cần trả lời" thì ghi mốc), gợi ý gắn nhãn tính cách cho khách mới, gợi ý hỏi đáp
+  // học từ cách chủ trả lời.
+  `ALTER TABLE drafts ADD COLUMN original_text TEXT;
+   ALTER TABLE conversations ADD COLUMN wait_ok_at INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE conversations ADD COLUMN suggest_profile_id INTEGER;
+   ALTER TABLE conversations ADD COLUMN suggest_reason TEXT NOT NULL DEFAULT '';
+   ALTER TABLE conversations ADD COLUMN suggest_checked_at INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE conversations ADD COLUMN suggest_dismissed INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE profiles ADD COLUMN learned_at INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE faq_suggestions (
+     id INTEGER PRIMARY KEY,
+     profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+     question TEXT NOT NULL,
+     answer TEXT NOT NULL,
+     evidence TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'dismissed')),
+     created_at INTEGER NOT NULL,
+     decided_at INTEGER
+   );
+   CREATE INDEX faq_suggestions_profile ON faq_suggestions (profile_id, status);`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

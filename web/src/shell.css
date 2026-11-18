@@ -319,3 +319,14 @@
 .auth-help { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: var(--background); }
 .auth-help ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .auth-cmd { padding: 8px 10px; border-radius: 6px; background: var(--surface); font-size: 12px; overflow-x: auto; white-space: pre; }
+
+/* ----- Khách chờ lâu, gợi ý gắn nhãn (Hộp thư) ----- */
+.task-card.wait-card { border-color: color-mix(in srgb, var(--warning) 35%, transparent); background: var(--warning-bg); }
+.task-card.wait-card .task-head svg { color: var(--warning); }
+.task-card.wait-card > p { margin: 0; line-height: 1.5; }
+.task-card.wait-card .primary svg { width: 14px; height: 14px; margin-left: 4px; }
+.sug-box { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px 12px; border-radius: 12px; background: var(--primary-light); }
+.sug-head { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; }
+.sug-head svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--primary-ink); }
+.sug-box .info-hint { margin: 0; }
+.sug-actions { display: flex; gap: 6px; }

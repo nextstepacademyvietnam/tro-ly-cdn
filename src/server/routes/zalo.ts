@@ -4,6 +4,7 @@ import { type ProfileStore, resolveProfile } from "../../core/profiles.js";
 import type { AssistantStore } from "../../core/assistantStore.js";
 import type { CareStore } from "../../care/store.js";
 import type { ScheduleStore } from "../../scheduler/store.js";
+import { WAIT_LOOKBACK_MS, WAIT_REPLY_MS } from "../../core/waiting.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -29,12 +30,25 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
   });
 
   // ---------- Tài khoản ----------
+  /** Khách chờ trả lời lâu, bỏ hội thoại gắn nhãn "Không bot" (thường là người nhà, nội bộ). */
+  const waitingFor = (s: ReturnType<typeof accounts.get>, accountId: number, labels: unknown[] | null, now: number) => {
+    const w = s.inbox.waitingReplies(now, WAIT_REPLY_MS, WAIT_LOOKBACK_MS);
+    const list = profiles.list(accountId);
+    const offTag = profiles.offTag(accountId);
+    for (const id of [...w.keys()]) {
+      const c = s.inbox.conversation(id);
+      if (!c || resolveProfile(c, list, labels, offTag).kind === "off") w.delete(id);
+    }
+    return w;
+  };
+
   app.get("/api/accounts", async () => ({
-    accounts: accounts.list().map((a) => {
+    accounts: await Promise.all(accounts.list().map(async (a) => {
       const s = accounts.get(a.id);
       const st = s.channel.getStatus();
       const counts = s.inbox.counts();
       const draftThreads = new Set(assistant.pendingCounts(a.id).keys());
+      const waiting = waitingFor(s, a.id, await s.channel.labels(), Date.now());
       return {
         id: a.id,
         name: a.name,
@@ -44,15 +58,15 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
         paused: assistant.isPaused(a.id),
         unread: assistant.unreadCount(a.id),
         pendingDrafts: assistant.pending(a.id).length,
-        // "Cần xử lý" = hội thoại có nháp chờ duyệt hoặc đang chờ người thật.
-        needsAction: new Set([...draftThreads, ...counts.waitingThreads]).size,
+        // "Cần xử lý" = hội thoại có nháp chờ duyệt, đang chờ người thật, hoặc khách chờ trả lời lâu.
+        needsAction: new Set([...draftThreads, ...counts.waitingThreads, ...waiting.keys()]).size,
         unreadConversations: counts.unread,
         activeSchedules: schedules ? schedules.list({ accountId: a.id, status: "active" }).length : 0,
         trackedGroups: accounts.trackedGroupCount(a.id),
         // Khách tới lượt chăm sóc trong hôm nay (số ở mục Chăm sóc).
         careDue: care ? care.dueToday(a.id, Date.now()) : 0,
       };
-    }),
+    })),
   }));
 
   app.post<{ Body: { name?: string } }>("/api/accounts", async (req) => ({ account: accounts.create(req.body?.name ?? "") }));
@@ -160,6 +174,7 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
     const first = s.inbox.firstMessageTimes();
     const carePlans = new Map((care?.list(req.accountId) ?? []).map((p) => [p.threadId, p]));
     const now = Date.now();
+    const waiting = waitingFor(s, req.accountId, labels, now);
     return {
       labelsAvailable: labels !== null,
       conversations: s.inbox.conversations().map((c) => {
@@ -175,6 +190,13 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
           gender: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.gender ?? "") : "",
           genderSource: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.source ?? "") : "",
           waitingHuman: c.handoff_until > now,
+          // Khách nhắn mà chưa ai trả lời quá 30 phút: mốc khách bắt đầu chờ (0 = không chờ).
+          waitingReplySince: waiting.get(c.thread_id) ?? 0,
+          // Gợi ý gắn nhãn (AI đoán), chỉ khi hội thoại chưa có nhãn trợ lý.
+          suggestion:
+            r.kind === "none" && c.suggest_profile_id && !c.suggest_dismissed && list.some((p) => p.id === c.suggest_profile_id)
+              ? { profileId: c.suggest_profile_id, reason: c.suggest_reason }
+              : null,
           bot:
             r.kind === "profile"
               ? { kind: "profile", profileId: r.profile.id, name: r.profile.name, source: r.source, conflict: r.conflict.map((p) => p.name) }

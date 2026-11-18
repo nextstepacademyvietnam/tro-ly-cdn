@@ -1,4 +1,5 @@
 import type { DB } from "../../server/db.js";
+import { isClosingMessage } from "../../core/waiting.js";
 import { describeNonText, type InboundEvent, type ThreadType } from "./protocol.js";
 
 export type MessageSource = "zalo" | "owner" | "ai";
@@ -20,6 +21,13 @@ export interface ConversationRow {
   handoff_reason: string;
   /** 1 = khách đã xin không nhận tin chủ động. */
   no_proactive: number;
+  /** Mốc chủ bấm "Không cần trả lời" (last_message_at lúc đó). */
+  wait_ok_at: number;
+  /** Gợi ý gắn tính cách cho khách chưa có nhãn (AI xét một lần). */
+  suggest_profile_id: number | null;
+  suggest_reason: string;
+  suggest_checked_at: number;
+  suggest_dismissed: number;
 }
 
 export interface MessageRow {
@@ -118,6 +126,42 @@ export class Inbox {
     const unread = (this.db.prepare("SELECT COUNT(*) AS n FROM conversations WHERE account_id = ? AND unread > 0").get(this.accountId) as { n: number }).n;
     const rows = this.db.prepare("SELECT thread_id FROM conversations WHERE account_id = ? AND handoff_until > ?").all(this.accountId, now) as { thread_id: string }[];
     return { unread, waitingHuman: rows.length, waitingThreads: rows.map((r) => r.thread_id) };
+  }
+
+  /**
+   * Khách chat riêng đang chờ trả lời: tin cuối là của khách, đã quá `minWaitMs`, trong `lookbackMs` gần đây,
+   * sau lần chủ bấm "Không cần trả lời", không phải tin khép chuyện (nhãn dán, "ok", "cảm ơn").
+   * Bỏ hội thoại tắt bot trên web và hội thoại đang chờ người thật (đã có ở Cần xử lý).
+   * Trả về mốc khách bắt đầu chờ (tin đầu tiên chưa được trả lời).
+   */
+  waitingReplies(now: number, minWaitMs: number, lookbackMs: number): Map<string, number> {
+    const rows = this.db
+      .prepare(
+        `SELECT c.thread_id, m.direction, m.kind, m.text FROM conversations c
+         JOIN messages m ON m.id = (
+           SELECT id FROM messages WHERE account_id = c.account_id AND thread_id = c.thread_id ORDER BY created_at DESC, id DESC LIMIT 1)
+         WHERE c.account_id = ? AND c.thread_type = 'user' AND c.assigned_off = 0 AND c.handoff_until <= ?
+           AND c.last_message_at > ? AND c.last_message_at > c.wait_ok_at`,
+      )
+      .all(this.accountId, now, now - lookbackMs) as { thread_id: string; direction: string; kind: string; text: string | null }[];
+    const since = this.db.prepare(
+      `SELECT MIN(created_at) AS t FROM messages WHERE account_id = ? AND thread_id = ? AND direction = 'in'
+         AND created_at > (SELECT COALESCE(MAX(created_at), 0) FROM messages WHERE account_id = ? AND thread_id = ? AND direction = 'out')`,
+    );
+    const out = new Map<string, number>();
+    for (const r of rows) {
+      if (r.direction !== "in" || isClosingMessage(r.text, r.kind)) continue;
+      const t = Number((since.get(this.accountId, r.thread_id, this.accountId, r.thread_id) as { t: number | null }).t ?? 0);
+      if (t && now - t >= minWaitMs) out.set(r.thread_id, t);
+    }
+    return out;
+  }
+
+  /** Chủ thấy hội thoại không cần trả lời: không tính "chờ" tới khi khách nhắn tin mới. */
+  markNoReplyNeeded(threadId: string) {
+    this.db
+      .prepare("UPDATE conversations SET wait_ok_at = last_message_at WHERE account_id = ? AND thread_id = ?")
+      .run(this.accountId, threadId);
   }
 
   /** Lúc tin đầu tiên của mỗi hội thoại ("Nhắn lần đầu"). */

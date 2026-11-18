@@ -226,3 +226,14 @@ label.field > span { font-weight: 500; }
 .sched-vars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
 .sched-var { min-height: 28px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; }
 .sched-preview { display: grid; gap: 2px; padding: 8px 12px; border-radius: 8px; background: var(--background); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+
+/* ----- Gợi ý hỏi đáp học từ cách chủ trả lời (Tính cách, tầng 2) ----- */
+.learn-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--primary-light); }
+.learn-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.learn-head > div { flex: 1 1 260px; min-width: 0; }
+.learn-head p { margin: 2px 0 0; }
+.learn-head .small-btn { flex: none; }
+.faqs li.learn-item { gap: 6px; background: var(--surface); }
+.learn-field { display: grid; gap: 2px; font-weight: 400; font-size: 13px; }
+.learn-field > span { font-size: 12px; font-weight: 500; color: var(--muted); }
+.learn-field textarea { resize: vertical; font-size: 13px; }

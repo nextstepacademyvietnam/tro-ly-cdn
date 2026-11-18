@@ -14,6 +14,9 @@ import { ScheduleRunner } from "../scheduler/runner.js";
 import { ScheduleStore } from "../scheduler/store.js";
 import { registerAccountRoutes } from "./routes/zalo.js";
 import { registerCareRoutes } from "./routes/care.js";
+import { registerAssistRoutes } from "./routes/assist.js";
+import { AssistService } from "../assist/service.js";
+import { ConnectionWatch } from "./connectionWatch.js";
 import { CareStore } from "../care/store.js";
 import { CareService } from "../care/service.js";
 import { registerProfileRoutes } from "./routes/profiles.js";
@@ -227,6 +230,27 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   if (deps.dataDir) care.start();
   app.addHook("onClose", async () => care.stop());
   registerCareRoutes(app, { store: careStore, service: care, accounts, profiles });
+
+  // ---------- Khách chờ lâu, gợi ý gắn nhãn, học hỏi đáp từ chủ, canh kết nối Zalo ----------
+  const assist = new AssistService({
+    db: deps.db,
+    assistant,
+    profiles,
+    account: (id) => accounts.replierAccount(id),
+    accountIds: () => accounts.list().map((a) => a.id),
+    engine: engineOrNull,
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  const watch = new ConnectionWatch(accounts, assistant);
+  if (deps.dataDir) {
+    assist.start();
+    watch.start();
+  }
+  app.addHook("onClose", async () => {
+    assist.stop();
+    watch.stop();
+  });
+  registerAssistRoutes(app, { accounts, assist, replier, profiles, assistant });
 
   registerAccountRoutes(app, accounts, profiles, assistant, schedules.store, careStore);
   registerProfileRoutes(app, profiles, accounts, engineOrNull);

@@ -212,6 +212,58 @@ export class Replier {
     return out;
   }
 
+  /** Khung chung + tính cách + lịch sử hội thoại → câu AI trả về (chưa tách thẻ). Lỗi AI ném ra ngoài. */
+  private async generate(
+    acc: ReplierAccount,
+    engine: Engine,
+    t: { threadId: string; threadType: ThreadType; personName: string; senderId: string; who: string },
+    profile: Profile,
+  ): Promise<string | null> {
+    const isGroup = t.threadType === "group";
+    const messages = this.history(acc, t.threadId, isGroup);
+    if (!messages.length || messages[messages.length - 1].role !== "user") return null;
+    const system =
+      frameSystemPrompt({
+        ownerName: acc.ownerName(),
+        profileName: profile.name,
+        isGroup,
+        groupName: isGroup ? (await acc.groupName(t.threadId)) || t.who : "",
+        personName: t.personName,
+        sendMode: profile.sendMode,
+        salutation: acc.salutation(t.senderId),
+      }) +
+      "\n\n" +
+      this.profiles.compose(profile.id, undefined, this.now());
+    return engine.generate({ system, messages });
+  }
+
+  /**
+   * Chủ bấm "Nhờ trợ lý soạn" (VD khách chờ lâu, kể cả khách chưa gắn nhãn): soạn một NHÁP theo tính cách chọn,
+   * không bao giờ tự gửi, không xét luật im lặng. Trả nháp, hoặc ném lỗi dễ hiểu.
+   */
+  async draftFor(accountId: number, threadId: string, profileId: number): Promise<Draft> {
+    const acc = this.account(accountId);
+    if (!acc) throw new Error("Không có tài khoản này");
+    const conv = acc.inbox.conversation(threadId);
+    if (!conv) throw new Error("Không có hội thoại này");
+    const profile = this.profiles.list(accountId).find((p) => p.id === profileId);
+    if (!profile) throw new Error("Tính cách không thuộc tài khoản này");
+    const engine = this.engine();
+    if (!engine) throw new Error("Chưa cấu hình mô hình AI");
+    const who = conv.name || threadId;
+    const lastIn = [...acc.inbox.messages(threadId, 10)].reverse().find((m) => m.direction === "in");
+    const raw = await this.generate(
+      acc,
+      engine,
+      { threadId, threadType: conv.thread_type, personName: lastIn?.sender_name || conv.name, senderId: lastIn?.sender_id || threadId, who },
+      profile,
+    );
+    if (raw === null) throw new Error("Tin cuối là của bạn, khách chưa hỏi gì thêm để trả lời");
+    const parsed = parseReply(raw);
+    if (parsed.silent || !parsed.text) throw new Error("Trợ lý thấy tin này không cần trả lời. Bạn tự trả lời nếu cần.");
+    return this.store.addDraft(accountId, threadId, profile.id, parsed.text, parsed.handoff, this.now());
+  }
+
   private async reply(acc: ReplierAccount, event: InboundEvent, profile: Profile, who: string) {
     const engine = this.engine();
     if (!engine) {
@@ -219,28 +271,19 @@ export class Replier {
       return;
     }
     const isGroup = event.threadType === "group";
-    const messages = this.history(acc, event.threadId, isGroup);
-    if (!messages.length || messages[messages.length - 1].role !== "user") return;
-    const system =
-      frameSystemPrompt({
-        ownerName: acc.ownerName(),
-        profileName: profile.name,
-        isGroup,
-        groupName: isGroup ? (await acc.groupName(event.threadId)) || who : "",
-        personName: event.displayName,
-        sendMode: profile.sendMode,
-        salutation: acc.salutation(event.senderId),
-      }) +
-      "\n\n" +
-      this.profiles.compose(profile.id, undefined, this.now());
-
-    let raw: string;
+    let raw: string | null;
     try {
-      raw = await engine.generate({ system, messages });
+      raw = await this.generate(
+        acc,
+        engine,
+        { threadId: event.threadId, threadType: event.threadType, personName: event.displayName, senderId: event.senderId, who },
+        profile,
+      );
     } catch (err) {
       this.store.notify(acc.accountId, "error", `AI lỗi khi trả lời ${who}: ${(err as Error).message}. Không có tin nào được gửi.`, event.threadId);
       return;
     }
+    if (raw === null) return;
     const parsed = parseReply(raw);
     if (parsed.silent) return;
     // Trong nhóm, lời chuyển người thật không viết vào nhóm — chỉ báo chủ.

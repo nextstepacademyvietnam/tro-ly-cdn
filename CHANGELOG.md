@@ -10,6 +10,10 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 ## [Chưa phát hành]
 
 ### Mới
+- **Khách chờ lâu**: khách nhắn riêng mà chưa ai trả lời quá 30 phút (kể cả khách chưa gắn nhãn) hiện trong **Cần xử lý**, kèm thời gian đã chờ. Bấm **Nhờ trợ lý soạn** để có nháp trả lời ngay (chọn tính cách nếu khách chưa có nhãn), hoặc **Không cần trả lời**. Tin chỉ là nhãn dán, "ok", "cảm ơn" không tính.
+- **Gợi ý gắn nhãn**: khách mới nhắn riêng chưa có nhãn trợ lý, app nhờ AI xem đó là khách của tính cách nào (người nhà, nội bộ, đối tác thì không gợi ý). Gợi ý hiện ở cột thông tin và thẻ khách chờ; bạn bấm **Gắn nhãn** mới gắn.
+- **Học từ cách bạn trả lời**: mỗi lần bạn tự trả lời khách hoặc sửa nháp trợ lý, app ghi lại. Mỗi ngày (khi có đủ lượt mới) hoặc khi bấm **Tìm gợi ý** ở trang **Tính cách**, AI rút thành câu hỏi đáp; bạn duyệt (sửa được) thì thêm vào hỏi đáp của tính cách. Kèm số nháp 30 ngày qua: gửi nguyên văn, bạn sửa, bỏ.
+- Zalo mất kết nối quá 10 phút thì chuông báo cho bạn, nối lại được thì báo đã nối lại.
 - **Chăm sóc khách chủ động**: bật trong trang **Tính cách**. Với mỗi khách chat riêng gắn nhãn tính cách đó, trợ lý đọc lại hội thoại, ghi **hồ sơ khách** (thông tin, những gì đã trao đổi, nhu cầu, giai đoạn) và đặt **lịch chăm sóc** tiếp theo: bao lâu một lần, ngày nào, lần tới cần làm gì, kèm lý do. Tới lịch, trợ lý **soạn sẵn tin chăm sóc** vào mục Cần xử lý để bạn duyệt rồi gửi, không tự gửi.
 - Hộp thư, cột thông tin có thêm mục **Chăm sóc**: xem và sửa hồ sơ khách, đổi lịch (khoá để AI không tự đổi), tạm dừng, phân tích lại, xem lịch sử chăm sóc. Menu có thêm trang **Chăm sóc**: khách tới lượt hôm nay, sắp tới, tạm dừng, đã dừng.
 - Trợ lý tự dừng chăm sóc người không phải khách (người nhà, nội bộ) và khách xin không nhận tin; không nhắn trong giờ yên lặng 21:30–07:30.
@@ -22,6 +26,7 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 - Menu chia nhóm **Zalo / Cài đặt**; ô chuyển tài khoản Zalo nằm ngay trong nhóm Zalo.
 
 ### Sửa
+- Windows: app **tự bật lại** nếu bị tắt ngang hoặc treo (máy kiểm 5 phút một lần). Bấm "Tắt Trợ lý CDN" thì app nằm yên tới khi bạn mở lại. Bản cài từ trước: chạy lại file cài đặt để có phần này, dữ liệu giữ nguyên.
 - Zalo **tự nối lại** khi rớt mạng hoặc máy vừa ngủ dậy (trước đây nằm im ở "Mất kết nối" tới khi bấm Kết nối lại, làm lỡ tin và lỡ lời chào nhóm). Người vào nhóm lúc mất kết nối vẫn được chào nếu chưa quá 24 giờ.
 - Tải ảnh lớn (ảnh gốc điện thoại, ảnh thiết kế) cho lời chào và lịch gửi không còn lỗi: app tự thu nhỏ trước khi tải, có lỗi thì báo rõ.
 - Số người vào nhóm không còn bị đếm trùng.

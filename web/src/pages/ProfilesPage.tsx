@@ -502,6 +502,7 @@ function KnowledgeLayer({ profile, onChanged }: { profile: Profile; onChanged: (
         </ul>
       )}
 
+      {profile.applies !== "group" && <LearnedFaqs profileId={profile.id} onChanged={onChanged} />}
       <strong className="small">Câu hỏi thường gặp ({profile.faqs.length})</strong>
       <ul className="faqs">
         {profile.faqs.map((f) =>
@@ -544,6 +545,105 @@ function KnowledgeLayer({ profile, onChanged }: { profile: Profile; onChanged: (
         </Modal>
       )}
     </Layer>
+  );
+}
+
+type Suggestion = { id: number; question: string; answer: string; evidence: string; createdAt: number };
+type LearnView = { suggestions: Suggestion[]; learnedAt: number; drafts: { sentAsIs: number; edited: number; discarded: number }; added?: number };
+
+/**
+ * Gợi ý hỏi đáp rút từ cách chủ trả lời khách (tự gõ, hoặc sửa nháp trợ lý rồi gửi). App tự tìm mỗi ngày khi có
+ * đủ lượt trả lời mới; bấm "Tìm gợi ý" để tìm ngay. Duyệt (sửa được) thì thành hỏi đáp ở dưới.
+ */
+function LearnedFaqs({ profileId, onChanged }: { profileId: number; onChanged: () => void }) {
+  const [view, setView] = useState<LearnView | null>(null);
+  const [edits, setEdits] = useState<Record<number, { question: string; answer: string }>>({});
+  const [busy, setBusy] = useState<number | "find" | null>(null);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    api<LearnView>(`/api/profiles/${profileId}/learn`)
+      .then(setView)
+      .catch(() => undefined);
+  }, [profileId]);
+  const find = async () => {
+    setBusy("find");
+    setMessage("");
+    try {
+      const r = await api<LearnView>(`/api/profiles/${profileId}/learn`, { method: "POST" });
+      setView(r);
+      setMessage(r.added ? `Tìm được ${r.added} gợi ý mới.` : "Chưa thấy gì mới để học. Khi bạn trả lời khách thêm, app sẽ tự tìm lại.");
+    } catch (err) {
+      setMessage((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const decide = async (s: Suggestion, accept: boolean) => {
+    setBusy(s.id);
+    setMessage("");
+    try {
+      const e = edits[s.id];
+      setView(await api<LearnView>(`/api/profiles/${profileId}/learn/${s.id}`, { body: { accept, question: e?.question, answer: e?.answer } }));
+      if (accept) onChanged();
+    } catch (err) {
+      setMessage((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  if (!view) return null;
+  const d = view.drafts;
+  const total = d.sentAsIs + d.edited + d.discarded;
+  return (
+    <div className="learn-box">
+      <div className="learn-head">
+        <div>
+          <strong className="small">Gợi ý từ cách bạn trả lời ({view.suggestions.length})</strong>
+          <p className="muted small">
+            App đọc những lần bạn tự trả lời khách hoặc sửa nháp trợ lý, rút thành hỏi đáp để trợ lý trả lời giống bạn.
+            {view.learnedAt ? ` Lần tìm gần nhất: ${fmtDate(view.learnedAt)}.` : " Tự tìm mỗi ngày khi có đủ lượt trả lời mới."}
+          </p>
+          {total > 0 && (
+            <p className="muted small">
+              Nháp trợ lý 30 ngày qua: {d.sentAsIs} gửi nguyên văn, {d.edited} bạn sửa rồi gửi, {d.discarded} bỏ.
+            </p>
+          )}
+        </div>
+        <button className="small-btn" onClick={find} disabled={busy !== null}>
+          {busy === "find" ? "Đang đọc hội thoại…" : "Tìm gợi ý"}
+        </button>
+      </div>
+      {view.suggestions.length > 0 && (
+        <ul className="faqs">
+          {view.suggestions.map((s) => {
+            const e = edits[s.id] ?? { question: s.question, answer: s.answer };
+            const set = (patch: Partial<typeof e>) => setEdits((m) => ({ ...m, [s.id]: { ...e, ...patch } }));
+            return (
+              <li key={s.id} className="learn-item">
+                <label className="learn-field">
+                  <span>Hỏi</span>
+                  <input value={e.question} onChange={(ev) => set({ question: ev.target.value })} />
+                </label>
+                <label className="learn-field">
+                  <span>Đáp</span>
+                  <textarea rows={3} value={e.answer} onChange={(ev) => set({ answer: ev.target.value })} />
+                </label>
+                {s.evidence && <p className="muted small">Rút từ: {s.evidence}</p>}
+                <div className="row small">
+                  <button className="small-btn" disabled={busy !== null} onClick={() => decide(s, true)}>
+                    {busy === s.id ? "Đang lưu…" : "Thêm vào hỏi đáp"}
+                  </button>
+                  <button className="link small" disabled={busy !== null} onClick={() => decide(s, false)}>
+                    Bỏ
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {message && <p className="muted small">{message}</p>}
+    </div>
   );
 }
 
