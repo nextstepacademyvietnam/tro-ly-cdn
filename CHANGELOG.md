@@ -30,6 +30,7 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 - Menu chia nhóm **Zalo / Cài đặt**; ô chuyển tài khoản Zalo nằm ngay trong nhóm Zalo.
 
 ### Sửa
+- App không còn báo "Một tiến trình Trợ lý CDN khác đang giữ kết nối Zalo" sau khi bị tắt ngang rồi bật lại (máy cấp lại số tiến trình cũ cho chương trình khác). Khoá bỏ quên quá 2 phút được tự gỡ.
 - Windows: app **tự bật lại** nếu bị tắt ngang hoặc treo (máy kiểm 5 phút một lần). Bấm "Tắt Trợ lý CDN" thì app nằm yên tới khi bạn mở lại. Bản cài từ trước: chạy lại file cài đặt để có phần này, dữ liệu giữ nguyên.
 - Zalo **tự nối lại** khi rớt mạng hoặc máy vừa ngủ dậy (trước đây nằm im ở "Mất kết nối" tới khi bấm Kết nối lại, làm lỡ tin và lỡ lời chào nhóm). Người vào nhóm lúc mất kết nối vẫn được chào nếu chưa quá 24 giờ.
 - Tải ảnh lớn (ảnh gốc điện thoại, ảnh thiết kế) cho lời chào và lịch gửi không còn lỗi: app tự thu nhỏ trước khi tải, có lỗi thì báo rõ.

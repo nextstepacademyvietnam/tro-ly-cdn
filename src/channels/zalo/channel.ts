@@ -71,6 +71,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   private readonly pacer = new SendPacer();
   private loginAbort: (() => unknown) | null = null;
   private lockFile: string;
+  private lockBeat: NodeJS.Timeout | null = null;
   private readonly credentialsKey: string;
   private labelsCache: { at: number; data: unknown } | null = null;
   /** Tự nối lại khi mất kết nối (rớt mạng, máy ngủ): thư viện Zalo chỉ tự thử lại với vài mã đóng của máy chủ. */
@@ -533,10 +534,16 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   // ---- Khoá: một tài khoản Zalo chỉ một trợ lý chạy trên máy này ----
+  /**
+   * Khoá "một nick chỉ một tiến trình": file ghi PID, người giữ ghi lại file mỗi 30 giây.
+   * Khoá không được ghi lại quá 2 phút là khoá bỏ quên (app bị tắt ngang) — kể cả khi Windows đã cấp lại đúng số
+   * PID đó cho một chương trình khác (từng gặp: PID cũ thành conhost, app mới không kết nối được Zalo).
+   */
   private acquireLock() {
     try {
       const pid = Number(fs.readFileSync(this.lockFile, "utf8"));
-      if (pid && pid !== process.pid && processAlive(pid)) {
+      const fresh = Date.now() - fs.statSync(this.lockFile).mtimeMs < LOCK_STALE_MS;
+      if (pid && pid !== process.pid && fresh && processAlive(pid)) {
         throw new Error(`Một tiến trình Trợ lý CDN khác (PID ${pid}) đang giữ kết nối Zalo trên máy này.`);
       }
     } catch (err) {
@@ -546,9 +553,21 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     }
     fs.mkdirSync(path.dirname(this.lockFile), { recursive: true });
     fs.writeFileSync(this.lockFile, String(process.pid));
+    if (!this.lockBeat) {
+      this.lockBeat = setInterval(() => {
+        try {
+          if (Number(fs.readFileSync(this.lockFile, "utf8")) === process.pid) fs.writeFileSync(this.lockFile, String(process.pid));
+        } catch {
+          /* khoá đã bị gỡ */
+        }
+      }, 30_000);
+      this.lockBeat.unref();
+    }
   }
 
   private releaseLock() {
+    if (this.lockBeat) clearInterval(this.lockBeat);
+    this.lockBeat = null;
     try {
       if (Number(fs.readFileSync(this.lockFile, "utf8")) === process.pid) fs.rmSync(this.lockFile);
     } catch {
@@ -556,6 +575,9 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     }
   }
 }
+
+/** Khoá Zalo không được người giữ ghi lại quá ngần này thì coi là bỏ quên. */
+export const LOCK_STALE_MS = 120_000;
 
 export async function readImageMetadata(filePath: string): Promise<{ width: number; height: number; size: number } | null> {
   try {
