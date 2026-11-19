@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import type { AccountManager } from "../../channels/zalo/accounts.js";
 import type { CrmService } from "../../crm/service.js";
+import type { ZaloMatcher } from "../../crm/zaloMatch.js";
 
 /** Tra khách trong Pancake CRM từ Hộp thư (chỉ đọc CRM). */
 export function registerCrmRoutes(
   app: FastifyInstance,
-  d: { accounts: AccountManager; crm: () => CrmService | null; careNote?: (accountId: number, threadId: string) => string },
+  d: { accounts: AccountManager; crm: () => CrmService | null; matcher?: () => ZaloMatcher | null; careNote?: (accountId: number, threadId: string) => string },
 ) {
   const fail = (err: unknown, code = 409) => Object.assign(new Error((err as Error).message), { statusCode: code });
   const state = (crm: CrmService) => ({ available: crm.available(), indexedAt: crm.indexedAt(), error: crm.lastError });
@@ -80,6 +81,13 @@ export function registerCrmRoutes(
     } catch (err) {
       throw fail(err, 400);
     }
+  });
+
+  // Tiến độ nối CRM → Zalo theo số của nick đang chọn.
+  app.get("/api/crm-zalo-progress", async (req) => {
+    const m = d.matcher?.();
+    if (!m || !d.crm()?.available()) return { available: false };
+    return { available: true, ...m.progress(req.accountId) };
   });
 
   app.post("/api/crm/refresh", async () => {

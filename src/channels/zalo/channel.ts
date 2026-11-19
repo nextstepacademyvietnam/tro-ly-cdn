@@ -377,6 +377,26 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     return out;
   }
 
+  /**
+   * Tìm tài khoản Zalo theo nhiều số điện thoại (0xxxxxxxxx) một lần gọi. Số không có Zalo hoặc người đó tắt
+   * "cho tìm theo số" thì vắng trong kết quả. Lỗi (kể cả Zalo báo tìm quá nhiều) ném ra cho người gọi xử lý.
+   */
+  async usersByPhones(phones: string[]): Promise<Map<string, { uid: string; name: string }>> {
+    const api = this.requireApi();
+    const res = (await withTimeout(api.getMultiUsersByPhones(phones), 20_000, "Tìm theo số")) as Record<
+      string,
+      { uid?: string; zalo_name?: string; display_name?: string } | null
+    >;
+    const out = new Map<string, { uid: string; name: string }>();
+    for (const [key, u] of Object.entries(res ?? {})) {
+      if (!u?.uid) continue;
+      let d = key.replace(/\D/g, "");
+      if (d.startsWith("84") && d.length >= 11) d = `0${d.slice(2)}`;
+      out.set(d, { uid: String(u.uid), name: String(u.display_name || u.zalo_name || "") });
+    }
+    return out;
+  }
+
   /** Tên hiển thị của nhiều người (theo lô 50). Ai không đọc được thì bỏ trống. */
   async memberNames(ids: string[]): Promise<Map<string, string>> {
     const api = this.requireApi();

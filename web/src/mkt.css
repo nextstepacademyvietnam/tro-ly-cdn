@@ -145,3 +145,9 @@
 .mkt-leadbar-total .tnum { font-weight: 600; }
 @media (min-width: 1280px) { .mkt-detail.single { grid-template-columns: minmax(0, 1fr); } }
 .mkt-code { font: 12px/1.5 ui-monospace, Consolas, monospace; }
+
+/* Thẻ Pancake: tiến độ nối CRM → Zalo theo số */
+.mkt-match { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--background); }
+.mkt-match-t { font-size: 13px; line-height: 1.5; }
+.mkt-match-bar { height: 6px; border-radius: 999px; background: var(--border-strong); overflow: hidden; }
+.mkt-match-bar i { display: block; height: 100%; background: var(--primary); }

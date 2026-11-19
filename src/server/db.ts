@@ -419,6 +419,20 @@ const MIGRATIONS: string[] = [
      PRIMARY KEY (account_id, thread_id, table_name)
    );
    ALTER TABLE conversations ADD COLUMN crm_phone_noticed TEXT NOT NULL DEFAULT '';`,
+  // Nối CRM → Zalo theo số điện thoại: app nhờ Zalo tìm số của lead ra tài khoản Zalo (uid), theo từng nick.
+  // Chỉ mục CRM giữ thêm số đã mã hoá (để bộ tìm đọc lại) và mức ưu tiên (0 = khách đang theo).
+  `CREATE TABLE crm_zalo (
+     account_id INTEGER NOT NULL,
+     phone_hash TEXT NOT NULL,
+     uid TEXT NOT NULL DEFAULT '',
+     zalo_name TEXT NOT NULL DEFAULT '',
+     checked_at INTEGER NOT NULL,
+     PRIMARY KEY (account_id, phone_hash)
+   );
+   CREATE INDEX crm_zalo_uid ON crm_zalo (account_id, uid);
+   ALTER TABLE crm_index ADD COLUMN priority INTEGER NOT NULL DEFAULT 1;
+   ALTER TABLE crm_index ADD COLUMN phone_enc TEXT NOT NULL DEFAULT '';
+   CREATE INDEX crm_index_priority ON crm_index (priority, created_on);`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

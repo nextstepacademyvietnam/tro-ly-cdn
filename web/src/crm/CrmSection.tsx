@@ -16,13 +16,16 @@ interface CrmView {
   available: boolean;
   indexedAt: number;
   error: string;
-  phones: { phone: string; from: "chu" | "zalo" | "chat" }[];
+  phones: { phone: string; from: "crm" | "chu" | "zalo" | "chat" }[];
   matches: CrmMatch[];
   saved: { table: string; recordId: string; phone: string; at: number }[];
   leadDraft: { name: string; phone: string; note: string };
 }
 
 const when = (ms: number) => new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(ms);
+/** Che bớt số: 0912•••678. */
+const mask = (p: string) => (p.length >= 10 ? `${p.slice(0, 4)}•••${p.slice(-3)}` : p);
+const SOURCE = { crm: " (số trong CRM, Zalo tìm ra đúng nick này)", chu: " (bạn nhập)", zalo: " (hồ sơ Zalo)", chat: " (khách gõ)" } as const;
 const day = (s: string) => (s ? s.slice(0, 10).split("-").reverse().join("/") : "");
 
 /**
@@ -79,7 +82,7 @@ export function CrmSection({ threadId }: { threadId: string }) {
       <div className="info-title">Khách trong CRM</div>
       {v.phones.length > 0 && (
         <p className="info-hint">
-          Tra theo {v.phones.map((p) => `${p.phone}${p.from === "chu" ? " (bạn nhập)" : p.from === "zalo" ? " (hồ sơ Zalo)" : " (khách gõ)"}`).join(", ")}
+          Tra theo {v.phones.map((p) => `${mask(p.phone)}${SOURCE[p.from]}`).join(", ")}
         </p>
       )}
       {v.matches.map((m) => (

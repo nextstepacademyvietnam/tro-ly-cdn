@@ -77,6 +77,24 @@ export function text(v: unknown): string {
   return String(v).normalize("NFC").replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
+export type PhoneSource = "crm" | "chu" | "zalo" | "chat";
+
+/** Trạng thái lead đang được theo (ưu tiên tìm Zalo trước). */
+export const ACTIVE_STATUSES = ["mới", "tiếp cận", "hẹn chốt", "phân loại", "hợp đồng", "tbsp", "hẹn trao đổi"];
+const DAY = 86_400_000;
+
+/**
+ * 0 = khách đang theo: lead / đăng ký workshop trong 60 ngày, hoặc lead trạng thái đang làm trong 180 ngày.
+ * 1 = lead cũ (tìm Zalo sau).
+ */
+export function priorityOf(r: Row, kind: "lead" | "workshop", now: number): 0 | 1 {
+  const c = Date.parse(`${String(r.CreatedOn ?? "").replace(" ", "T").replace("Z", "").slice(0, 19)}Z`);
+  const age = Number.isFinite(c) ? now - c : Infinity;
+  if (age <= 60 * DAY) return 0;
+  if (kind === "lead" && age <= 180 * DAY && ACTIVE_STATUSES.includes(text(r.Status).toLowerCase())) return 0;
+  return 1;
+}
+
 export const hashPhone = (phone: string) => crypto.createHash("sha256").update(`cdn-crm:${phone}`).digest("hex");
 
 /** Mọi số điện thoại của một bản ghi CRM (đã chuẩn hoá 0xxxxxxxxx). */
@@ -115,6 +133,8 @@ export class CrmService {
       fetch?: typeof fetch;
       now?: () => number;
       log?: (msg: string, extra?: object) => void;
+      /** Mã hoá số điện thoại trong chỉ mục (để bộ tìm Zalo theo số đọc lại được); không có thì không lưu số. */
+      box?: { encrypt(plain: string): string; decrypt(sealed: string): string };
     },
   ) {
     this.now = d.now ?? Date.now;
@@ -131,7 +151,10 @@ export class CrmService {
 
   /** Dựng lại chỉ mục từ các bản ghi (tách riêng để test không cần gọi Pancake). */
   rebuild(tables: { table: string; kind: CrmMatch["kind"]; rows: Row[] }[]): number {
-    const ins = this.d.db.prepare("INSERT OR REPLACE INTO crm_index (phone_hash, table_name, record_id, created_on, data) VALUES (?, ?, ?, ?, ?)");
+    const ins = this.d.db.prepare(
+      "INSERT OR REPLACE INTO crm_index (phone_hash, table_name, record_id, created_on, data, priority, phone_enc) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
+    const now = this.now();
     let n = 0;
     this.d.db.exec("BEGIN");
     try {
@@ -149,7 +172,8 @@ export class CrmService {
             fields: fields.map(([k, label]) => [label, text(r[k])]).filter(([, v]) => v),
           };
           const id = text(r.id ?? r.display_id ?? r.CustomerID) || `${t.table}:${n}`;
-          for (const p of phones) ins.run(hashPhone(p), t.table, id, text(r.CreatedOn), JSON.stringify(data));
+          const prio = priorityOf(r, t.kind, now);
+          for (const p of phones) ins.run(hashPhone(p), t.table, id, text(r.CreatedOn), JSON.stringify(data), prio, this.d.box?.encrypt(p) ?? "");
           n++;
         }
       }
@@ -203,15 +227,37 @@ export class CrmService {
   }
 
   /** Số điện thoại của khách: số chủ nhập trước, rồi các số khách tự gõ trong hội thoại (mới trước). */
-  phonesFor(accountId: number, threadId: string, inbox: Pick<Inbox, "messages">, profilePhone = ""): { phone: string; from: "chu" | "zalo" | "chat" }[] {
-    const out: { phone: string; from: "chu" | "zalo" | "chat" }[] = [];
+  phonesFor(accountId: number, threadId: string, inbox: Pick<Inbox, "messages">, profilePhone = ""): { phone: string; from: PhoneSource }[] {
+    const out: { phone: string; from: PhoneSource }[] = [];
+    // Nguồn chắc nhất: số của lead trong CRM mà Zalo tìm ra đúng tài khoản đang nhắn (không phụ thuộc tên).
+    for (const p of this.crmPhonesOfUid(accountId, threadId)) if (!out.some((x) => x.phone === p)) out.push({ phone: p, from: "crm" });
     const linked = this.linkedPhone(accountId, threadId);
-    if (linked) out.push({ phone: linked, from: "chu" });
+    if (linked && !out.some((x) => x.phone === linked)) out.push({ phone: linked, from: "chu" });
     const z = normPhone(profilePhone);
-    if (z && /^0\d{9}$/.test(z) && z !== linked) out.push({ phone: z, from: "zalo" });
+    if (z && /^0\d{9}$/.test(z) && !out.some((x) => x.phone === z)) out.push({ phone: z, from: "zalo" });
     const msgs = inbox.messages(threadId, 300).filter((m) => m.direction === "in" && m.text);
     for (const m of msgs.reverse()) for (const p of phonesIn(m.text!)) if (!out.some((x) => x.phone === p)) out.push({ phone: p, from: "chat" });
     return out.slice(0, 5);
+  }
+
+  /** Số (đã giải mã) của các lead CRM mà Zalo tìm ra là tài khoản `uid` này, trên nick `accountId`. */
+  crmPhonesOfUid(accountId: number, uid: string): string[] {
+    if (!this.d.box || !uid) return [];
+    const rows = this.d.db
+      .prepare(
+        `SELECT DISTINCT i.phone_enc FROM crm_zalo z JOIN crm_index i ON i.phone_hash = z.phone_hash
+         WHERE z.account_id = ? AND z.uid = ? AND i.phone_enc <> ''`,
+      )
+      .all(accountId, uid) as { phone_enc: string }[];
+    const out = new Set<string>();
+    for (const r of rows) {
+      try {
+        out.add(this.d.box.decrypt(r.phone_enc));
+      } catch {
+        /* khoá mã hoá đổi: bỏ qua */
+      }
+    }
+    return [...out];
   }
 
   matches(phones: string[]): CrmMatch[] {
@@ -339,16 +385,22 @@ export class CrmService {
     if (phone) {
       const data = { kind: "lead", name: name || text(rec?.Name), status: text(rec?.Status) ? "Mới" : "", link: text(rec?.pancake_link), fields: note ? [["Ghi chú", note.slice(0, 300)]] : [] };
       this.d.db
-        .prepare("INSERT OR REPLACE INTO crm_index (phone_hash, table_name, record_id, created_on, data) VALUES (?, ?, ?, ?, ?)")
-        .run(hashPhone(phone), table.name, id, text(rec?.CreatedOn) || new Date(now).toISOString(), JSON.stringify(data));
+        .prepare("INSERT OR REPLACE INTO crm_index (phone_hash, table_name, record_id, created_on, data, priority, phone_enc) VALUES (?, ?, ?, ?, ?, 0, ?)")
+        .run(hashPhone(phone), table.name, id, text(rec?.CreatedOn) || new Date(now).toISOString(), JSON.stringify(data), this.d.box?.encrypt(phone) ?? "");
     }
     return { recordId: id, created: !prev };
+  }
+
+  /** Tới lúc đọc lại CRM: chỉ mục cũ hơn 6 giờ, hoặc dựng bằng bản cũ chưa có số mã hoá (bộ tìm Zalo cần). */
+  needsRefresh(): boolean {
+    if (this.now() - this.indexedAt() >= REFRESH_MS - 60_000) return true;
+    return Boolean(this.d.box && this.d.db.prepare("SELECT 1 FROM crm_index WHERE phone_enc = '' LIMIT 1").get());
   }
 
   start() {
     if (this.timer) return;
     const run = () => {
-      if (this.now() - this.indexedAt() >= REFRESH_MS - 60_000) void this.refresh().catch(() => undefined);
+      if (this.needsRefresh()) void this.refresh().catch(() => undefined);
     };
     setTimeout(run, 60_000).unref();
     this.timer = setInterval(run, 15 * 60_000);

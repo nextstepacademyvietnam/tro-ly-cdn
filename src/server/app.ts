@@ -19,6 +19,7 @@ import { AssistService } from "../assist/service.js";
 import { ConnectionWatch } from "./connectionWatch.js";
 import { OwnerAlerts } from "./ownerAlerts.js";
 import { CrmService, phonesIn } from "../crm/service.js";
+import { ZaloMatcher } from "../crm/zaloMatch.js";
 import { registerCrmRoutes } from "./routes/crm.js";
 import { DEFAULT_RULES, type LeadRules } from "../mkt/connectors/pancake.js";
 import { CareStore } from "../care/store.js";
@@ -259,6 +260,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Trả lời khách có nhớ hồ sơ chăm sóc (giai đoạn, thông tin, đã trao đổi, nhu cầu).
   // Tra khách trong Pancake CRM (cần đã nối Pancake ở mục MKT): gắn ở khối MKT bên dưới.
   let crm: CrmService | null = null;
+  let zaloMatcher: ZaloMatcher | null = null;
   replier.customerNote = (id, threadId) => {
     const p = careStore.get(id, threadId);
     const care = p
@@ -334,6 +336,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     registerMktRoutes(app, { store: mktStore, runner: mktRunner, fetch: deps.mktFetch });
     crm = new CrmService({
       db: deps.db,
+      box: deps.box,
       cred: () => {
         const s = mktStore.secret<{ apiKey?: string; shopId?: string }>("pancake");
         const conn = mktStore.connection("pancake");
@@ -346,11 +349,33 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     });
     if (deps.dataDir) crm.start();
     const crmRef = crm;
-    app.addHook("onClose", async () => crmRef.stop());
+    // Nối CRM → Zalo theo số: Zalo tìm số của lead ra tài khoản Zalo, có trần mỗi nick mỗi ngày.
+    zaloMatcher = new ZaloMatcher({
+      db: deps.db,
+      box: deps.box,
+      accountIds: () => accounts.list().map((a) => a.id),
+      account: (id) => {
+        try {
+          const svc = accounts.get(id);
+          return { isConnected: () => svc.isConnected(), usersByPhones: (p) => svc.channel.usersByPhones(p) };
+        } catch {
+          return undefined;
+        }
+      },
+      notify: (id, text) => assistant.notify(id, "error", text),
+      log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+    });
+    const matcherRef = zaloMatcher;
+    if (deps.dataDir) zaloMatcher.start();
+    app.addHook("onClose", async () => {
+      crmRef.stop();
+      matcherRef.stop();
+    });
   }
   registerCrmRoutes(app, {
     accounts,
     crm: () => crm,
+    matcher: () => zaloMatcher,
     careNote: (id, threadId) => {
       const p = careStore.get(id, threadId);
       return p ? [p.needs && `Nhu cầu: ${p.needs}`, p.summary && `Đã trao đổi: ${p.summary}`].filter(Boolean).join("\n") : "";
