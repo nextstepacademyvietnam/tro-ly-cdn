@@ -61,6 +61,14 @@ export class Replier {
    * không chỉ dựa vào 30 tin gần nhất. Bộ chăm sóc gắn vào; trả "" khi chưa có hồ sơ.
    */
   customerNote: ((accountId: number, threadId: string) => string) | null = null;
+  /**
+   * Lệnh admin qua Zalo: tin của admin (hoặc "Cloud của tôi" có tiền tố) đi thẳng tới bộ lệnh, không vào luồng
+   * trả lời khách. Gắn sau khi tạo.
+   */
+  admin: {
+    route(accountId: number, event: InboundEvent, ownId: string): { thread: string; text: string | null } | null;
+    handle(accountId: number, thread: string, text: string | null): Promise<void>;
+  } | null = null;
   /** Mỗi tin khách vừa ghi vào hộp thư (VD bắt số điện thoại khách để lại để gợi ý lưu CRM). */
   onCustomerMessage: ((accountId: number, event: InboundEvent) => void) | null = null;
   /** Báo chủ ngoài app (VD Zalo "Cloud của tôi") khi có việc gấp. */
@@ -84,6 +92,11 @@ export class Replier {
     if (sentByApp) return;
     const acc = this.account(accountId);
     if (!acc) return;
+    const cmd = this.admin?.route(accountId, event, acc.ownId());
+    if (cmd) {
+      void this.admin!.handle(accountId, cmd.thread, cmd.text);
+      return;
+    }
     if (!event.isSelf) {
       try {
         this.onCustomerMessage?.(accountId, event);

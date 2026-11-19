@@ -74,6 +74,8 @@ Luật cứng:
 | **Mọi người khác** | Quyền do nhãn quyết định (A3) |
 | **Hệ thống Zalo** | Thiệp sinh nhật, thông báo kết bạn, tin thu hồi… nhận diện theo cấu trúc tin, không theo chữ |
 
+**Admin** (chủ chọn trong app, theo mã Zalo) nhắn riêng cho nick bot để ra lệnh; chính nick bot ra lệnh trong My Documents khi mở đầu bằng `bot` hoặc `/`. Lệnh được làm: thêm thông tin thời điểm / hỏi đáp, tạm dừng / chạy lại, bật tắt chăm sóc, xem số liệu, tóm tắt khách, gắn nhãn. Không có lệnh nào gửi tin cho khách hay xoá dữ liệu. Mỗi lệnh có trả lời và hoàn tác được. Chat với admin không bao giờ vào luồng trả lời khách.
+
 Tên hiển thị, nội dung tin, câu "tôi là chủ", "sếp bảo em"… không bao giờ đổi được vai hay quyền. Lệnh mẫu trong My Documents: `tạm dừng trợ lý`, `trợ lý chạy lại`, `duyệt hết`, `tóm tắt hôm nay`.
 
 ### A3b. Ma trận quyền
@@ -292,7 +294,9 @@ Chủ **không** viết được gì để nới lỏng Phần A. Nếu mô tả
 | A8 nhắn chủ động | `SendPacer` + lịch gửi (chủ đặt tay) |
 | Khách chờ lâu, nhờ trợ lý soạn | `Inbox.waitingReplies()` + `core/waiting.ts` (30 phút, bỏ tin khép chuyện); `Replier.draftFor()` luôn ra nháp |
 | Trần tự gửi (chặn bot nhắn qua lại) | `Replier.autoCapReason()`: 6 tin/giờ, 15 tin/24 giờ mỗi hội thoại → nháp |
-| Báo chủ qua Zalo, tóm tắt 17:30 | `server/ownerAlerts.ts`, cột `accounts.owner_alerts` |
+| Báo chủ qua Zalo | `server/ownerAlerts.ts`, cột `accounts.owner_alerts` |
+| Lệnh admin qua Zalo | `admin/commands.ts` (`AdminCommands.route` gọi từ `Replier.onInbound`), bảng `admins` |
+| Báo cáo định kỳ | `admin/reports.ts`, bảng `reports` |
 | Tra CRM | `crm/service.ts` (bảng `crm_index`, `crm_links`, `contacts.phone`) |
 | Nối CRM → Zalo theo số | `crm/zaloMatch.ts` (bảng `crm_zalo`, `getMultiUsersByPhones`), trần ở đầu file |
 | A10 gợi ý nhãn, học hỏi đáp | `assist/service.ts` (một lần gọi AI mỗi phút), bảng `faq_suggestions`, `drafts.original_text` |

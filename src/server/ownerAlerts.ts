@@ -131,13 +131,7 @@ export class OwnerAlerts {
           const body = ["🔔 Trợ lý CDN cần bạn:", ...q.items.map((t) => `- ${t}`), "Mở app, mục Cần xử lý."].join("\n");
           await this.send(id, body).catch((err) => this.d.log?.("Không báo được chủ qua Zalo", { account: id, err: (err as Error).message }));
         }
-        const day = vnDay(now);
-        const row = this.d.db.prepare("SELECT digest_day FROM accounts WHERE id = ?").get(id) as { digest_day: string } | undefined;
-        if (minuteVN(now) >= DIGEST_AT_MIN && !quiet && row && row.digest_day !== day) {
-          this.d.db.prepare("UPDATE accounts SET digest_day = ? WHERE id = ?").run(day, id);
-          const text = this.digest(id);
-          if (text) await this.send(id, text).catch((err) => this.d.log?.("Không gửi được tóm tắt", { account: id, err: (err as Error).message }));
-        }
+        // Tóm tắt cuối ngày: từ 19/11/2026 là một báo cáo định kỳ (src/admin/reports.ts), chọn được giờ và chỉ số.
       }
     } finally {
       this.busy = false;

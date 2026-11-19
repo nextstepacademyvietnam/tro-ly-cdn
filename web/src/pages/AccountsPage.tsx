@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { type Account, api } from "../api";
+import { AdminZalo } from "../admin/AdminZalo";
 
 type State = "logged_out" | "waiting_qr" | "scanned" | "connecting" | "connected" | "reconnecting" | "error";
 interface Status {
@@ -142,6 +143,7 @@ export function AccountsPage({
         )}
       </div>
       {connected && <OwnerAlertsCard key={account?.id ?? 0} />}
+      {connected && <AdminZalo key={`adm-${account?.id ?? 0}`} />}
       <div>
         <button type="button" onClick={() => onAddAccount().catch(() => undefined)}>
           <Plus aria-hidden />
@@ -155,12 +157,12 @@ export function AccountsPage({
 /** Báo về Zalo của chính bạn (khung "Cloud của tôi"): việc gấp và tóm tắt cuối ngày. */
 function OwnerAlertsCard() {
   const [on, setOn] = useState<boolean | null>(null);
-  const [preview, setPreview] = useState("");
+
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     api<{ enabled: boolean; preview: string }>("/api/owner-alerts")
-      .then((r) => (setOn(r.enabled), setPreview(r.preview)))
+      .then((r) => setOn(r.enabled))
       .catch(() => undefined);
   }, []);
   if (on === null) return null;
@@ -186,8 +188,7 @@ function OwnerAlertsCard() {
         <div>
           <strong>Báo về Zalo của bạn</strong>
           <p className="muted small alert-intro">
-            Trợ lý nhắn vào khung <b>Cloud của tôi</b> trên Zalo của nick này khi khách cần bạn trực tiếp, khi nháp chờ duyệt quá 15 phút,
-            và gửi tóm tắt lúc 17:30 mỗi ngày. Từ 21:30 tới 7:30 không nhắn, sáng gửi gộp.
+            Trợ lý nhắn vào khung <b>Cloud của tôi</b> trên Zalo của nick này khi khách cần bạn trực tiếp, và khi nháp chờ duyệt quá 15 phút. Từ 21:30 tới 7:30 không nhắn, sáng gửi gộp. Tóm tắt định kỳ đặt ở thẻ Báo cáo định kỳ bên dưới.
           </p>
         </div>
         <button type="button" role="switch" aria-checked={on} aria-label="Báo về Zalo của bạn" className="switch" onClick={toggle}>
@@ -201,12 +202,6 @@ function OwnerAlertsCard() {
           </button>
           {msg && <span className="muted small">{msg}</span>}
         </div>
-      )}
-      {on && preview && (
-        <details className="small">
-          <summary>Xem tóm tắt hôm nay sẽ trông thế nào</summary>
-          <pre className="alert-preview">{preview}</pre>
-        </details>
       )}
     </div>
   );

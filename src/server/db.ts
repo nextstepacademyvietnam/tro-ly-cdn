@@ -433,6 +433,32 @@ const MIGRATIONS: string[] = [
    ALTER TABLE crm_index ADD COLUMN priority INTEGER NOT NULL DEFAULT 1;
    ALTER TABLE crm_index ADD COLUMN phone_enc TEXT NOT NULL DEFAULT '';
    CREATE INDEX crm_index_priority ON crm_index (priority, created_on);`,
+  // Admin ra lệnh qua Zalo (nhắn riêng cho nick bot) và báo cáo định kỳ chọn chỉ số. Tóm tắt 17:30 cũ chuyển thành
+  // một báo cáo hằng ngày gửi vào "Cloud của tôi" (chỉ với tài khoản đang bật báo về Zalo).
+  `CREATE TABLE admins (
+     account_id INTEGER NOT NULL,
+     user_id TEXT NOT NULL,
+     name TEXT NOT NULL DEFAULT '',
+     added_at INTEGER NOT NULL,
+     PRIMARY KEY (account_id, user_id)
+   );
+   CREATE TABLE reports (
+     id INTEGER PRIMARY KEY,
+     account_id INTEGER NOT NULL,
+     name TEXT NOT NULL DEFAULT '',
+     frequency TEXT NOT NULL DEFAULT 'daily' CHECK (frequency IN ('daily', 'weekly')),
+     weekday INTEGER NOT NULL DEFAULT 1,
+     at_minute INTEGER NOT NULL DEFAULT 1050,
+     recipients TEXT NOT NULL DEFAULT '["self"]',
+     metrics TEXT NOT NULL DEFAULT '[]',
+     enabled INTEGER NOT NULL DEFAULT 1,
+     last_key TEXT NOT NULL DEFAULT '',
+     created_at INTEGER NOT NULL
+   );
+   INSERT INTO reports (account_id, name, metrics, created_at, last_key)
+     SELECT id, 'Tóm tắt cuối ngày', '["messages","ai_sent","pending","waiting","handoff","care"]',
+            CAST(strftime('%s', 'now') AS INTEGER) * 1000, digest_day
+     FROM accounts WHERE owner_alerts = 1;`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

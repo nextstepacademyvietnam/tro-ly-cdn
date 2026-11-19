@@ -18,7 +18,10 @@ import { registerAssistRoutes } from "./routes/assist.js";
 import { AssistService } from "../assist/service.js";
 import { ConnectionWatch } from "./connectionWatch.js";
 import { OwnerAlerts } from "./ownerAlerts.js";
-import { CrmService, phonesIn } from "../crm/service.js";
+import { AdminCommands, AdminStore } from "../admin/commands.js";
+import { Reports } from "../admin/reports.js";
+import { registerAdminRoutes } from "./routes/admin.js";
+import { CrmService, hashPhone, phonesIn } from "../crm/service.js";
 import { ZaloMatcher } from "../crm/zaloMatch.js";
 import { registerCrmRoutes } from "./routes/crm.js";
 import { DEFAULT_RULES, type LeadRules } from "../mkt/connectors/pancake.js";
@@ -239,6 +242,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // ---------- Khách chờ lâu, gợi ý gắn nhãn, học hỏi đáp từ chủ, canh kết nối Zalo ----------
   const assist = new AssistService({
     db: deps.db,
+    isAdmin: (id, u) => admins.isAdmin(id, u),
     assistant,
     profiles,
     account: (id) => accounts.replierAccount(id),
@@ -247,6 +251,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
   const watch = new ConnectionWatch(accounts, assistant);
+  // Admin ra lệnh qua Zalo và báo cáo định kỳ cho admin.
+  const admins = new AdminStore(deps.db);
+  const reports = new Reports({
+    db: deps.db,
+    assistant,
+    accountIds: () => accounts.list().map((a) => a.id),
+    account: (id) => accounts.replierAccount(id),
+    adminIds: (id) => admins.ids(id),
+    careDue: (id, now) => careStore.dueToday(id, now),
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
   // Báo chủ qua Zalo "Cloud của tôi": khách cần người thật, nháp chờ lâu, tóm tắt cuối ngày.
   const ownerAlerts = new OwnerAlerts({
     db: deps.db,
@@ -286,15 +301,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     assist.start();
     watch.start();
     ownerAlerts.start();
+    reports.start();
   }
   app.addHook("onClose", async () => {
     assist.stop();
     watch.stop();
     ownerAlerts.stop();
+    reports.stop();
   });
   registerAssistRoutes(app, { accounts, assist, replier, profiles, assistant, ownerAlerts });
 
-  registerAccountRoutes(app, accounts, profiles, assistant, schedules.store, careStore);
+  registerAccountRoutes(app, accounts, profiles, assistant, schedules.store, careStore, (id, u) => admins.isAdmin(id, u));
   registerProfileRoutes(app, profiles, accounts, engineOrNull);
   registerScheduleRoutes(app, schedules);
   registerAssistantRoutes(app, accounts, assistant, replier);
@@ -395,6 +412,46 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     assistant.notify(id, "draft", text, e.threadId);
     ownerAlerts.alert(id, text);
   };
+  const adminCommands = new AdminCommands({
+    admins,
+    profiles,
+    assistant,
+    reports,
+    account: (id) => accounts.replierAccount(id),
+    engine: engineOrNull,
+    threadsByPhone: (id, digits) => {
+      let p = digits;
+      if (p.startsWith("84") && p.length >= 11) p = `0${p.slice(2)}`;
+      const out = new Set<string>();
+      for (const r of deps.db.prepare("SELECT thread_id FROM crm_links WHERE account_id = ? AND phone = ?").all(id, p) as { thread_id: string }[]) out.add(r.thread_id);
+      for (const r of deps.db.prepare("SELECT user_id FROM contacts WHERE account_id = ? AND phone IN (?, ?)").all(id, p, `84${p.slice(1)}`) as { user_id: string }[]) out.add(r.user_id);
+      for (const r of deps.db.prepare("SELECT uid FROM crm_zalo WHERE account_id = ? AND phone_hash = ? AND uid <> ''").all(id, hashPhone(p)) as { uid: string }[]) out.add(r.uid);
+      return [...out];
+    },
+    customerBrief: (id, threadId) => {
+      const svc = accounts.get(id);
+      const conv = svc.inbox.conversation(threadId);
+      const p = careStore.get(id, threadId);
+      const last = svc.inbox
+        .messages(threadId, 6)
+        .filter((m) => m.text)
+        .map((m) => `${m.direction === "in" ? "Khách" : m.source === "ai" ? "Trợ lý" : "Bạn"}: ${m.text!.slice(0, 150)}`);
+      return [
+        `👤 ${conv?.name || "Khách"}`,
+        p?.stage && `Giai đoạn: ${p.stage}`,
+        p?.summary && `Đã trao đổi: ${p.summary}`,
+        p?.needs && `Nhu cầu: ${p.needs}`,
+        p?.status === "active" && p.nextAt ? `Chăm sóc tới: ${new Date(p.nextAt).toLocaleDateString("vi-VN")} (${p.goal})` : "",
+        crm?.note(id, threadId, svc.inbox, svc.contacts.phone(threadId)) ?? "",
+        last.length ? `Tin gần đây:\n${last.join("\n")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    },
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  replier.admin = adminCommands;
+  registerAdminRoutes(app, { accounts, admins, reports });
   registerFeedbackRoutes(app, {
     url: deps.feedbackUrl ?? null,
     version: deps.version ?? "",

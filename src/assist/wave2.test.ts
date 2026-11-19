@@ -119,18 +119,4 @@ describe("báo chủ qua Zalo", () => {
     expect(t.sent).toHaveLength(2);
   });
 
-  it("tóm tắt cuối ngày lúc 17:30, mỗi ngày một lần", async () => {
-    const t = setup("draft");
-    await t.receive("Cho anh hỏi khoá học");
-    t.setNow(Date.UTC(2026, 10, 18, 10, 0, 0)); // 17:00 VN: chưa tới giờ
-    await t.alerts.tick();
-    const before = t.sent.length;
-    t.setNow(Date.UTC(2026, 10, 18, 10, 31, 0)); // 17:31 VN
-    await t.alerts.tick();
-    await t.alerts.tick();
-    const digests = t.sent.slice(before).filter((s) => s.text.includes("tóm tắt hôm nay"));
-    expect(digests).toHaveLength(1);
-    expect(digests[0]!.text).toContain("1 tin từ 1 người nhắn riêng");
-    expect(digests[0]!.text).toContain("1 nháp đang chờ bạn duyệt");
-  });
 });

@@ -12,7 +12,16 @@ declare module "fastify" {
   }
 }
 
-export function registerAccountRoutes(app: FastifyInstance, accounts: AccountManager, profiles: ProfileStore, assistant: AssistantStore, schedules?: ScheduleStore, care?: CareStore) {
+export function registerAccountRoutes(
+  app: FastifyInstance,
+  accounts: AccountManager,
+  profiles: ProfileStore,
+  assistant: AssistantStore,
+  schedules?: ScheduleStore,
+  care?: CareStore,
+  /** Người là admin (chat ra lệnh với bot): không tính là khách chờ trả lời. */
+  isAdmin?: (accountId: number, userId: string) => boolean,
+) {
   const fail = (err: unknown, code = 409) => Object.assign(new Error((err as Error).message), { statusCode: code });
   const svc = (req: FastifyRequest) => {
     try {
@@ -37,7 +46,7 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
     const offTag = profiles.offTag(accountId);
     for (const id of [...w.keys()]) {
       const c = s.inbox.conversation(id);
-      if (!c || resolveProfile(c, list, labels, offTag).kind === "off") w.delete(id);
+      if (!c || resolveProfile(c, list, labels, offTag).kind === "off" || isAdmin?.(accountId, id)) w.delete(id);
     }
     return w;
   };

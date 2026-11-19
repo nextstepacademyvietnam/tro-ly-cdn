@@ -43,6 +43,8 @@ export interface AssistDeps {
   profiles: ProfileStore;
   account(id: number): ReplierAccount | undefined;
   accountIds(): number[];
+  /** Chat với admin không phải khách: không gợi ý nhãn, không học hỏi đáp. */
+  isAdmin?(accountId: number, userId: string): boolean;
   engine(): Engine | null;
   now?: () => number;
   log?: (msg: string, extra?: object) => void;
@@ -86,7 +88,7 @@ export class AssistService {
     const out: string[] = [];
     for (const c of rows) {
       const conv = c as never;
-      if (resolveProfile(conv, list, labels, offTag).kind !== "none") continue;
+      if (resolveProfile(conv, list, labels, offTag).kind !== "none" || this.d.isAdmin?.(accountId, String(c.thread_id))) continue;
       out.push(String(c.thread_id));
       if (out.length >= limit) break;
     }
@@ -142,7 +144,7 @@ export class AssistService {
     const offTag = this.d.profiles.offTag(p.accountId);
     const fits = (threadId: string) => {
       const conv = acc.inbox.conversation(threadId);
-      if (!conv || conv.thread_type !== "user") return null;
+      if (!conv || conv.thread_type !== "user" || this.d.isAdmin?.(p.accountId, threadId)) return null;
       const r = resolveProfile(conv, list, labels, offTag);
       if (r.kind === "off" || (r.kind === "profile" && r.profile.id !== profileId)) return null;
       return conv;
