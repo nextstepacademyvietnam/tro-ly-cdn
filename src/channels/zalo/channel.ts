@@ -66,6 +66,9 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   private api: API | null = null;
   private status: ZaloStatus = { state: "logged_out", since: Date.now() };
   private readonly sentIds = new Set<string>();
+  /** Số lệnh gửi đang chạy theo hội thoại, và nội dung app vừa gửi (2 phút) — để nhận ra tin Zalo báo lại là của app. */
+  private readonly inflight = new Map<string, number>();
+  private readonly recentTexts = new Map<string, { text: string; at: number }[]>();
   private readonly typingUntil = new Map<string, number>();
   private readonly groupNames = new Map<string, string>();
   private readonly pacer = new SendPacer();
@@ -227,8 +230,14 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       if (isFriendAcceptanceNotice(raw as never)) return;
       const event = canonicalizeSelfThread(normalizeMessage(raw as never), ownId);
       if (!event.threadId) return;
-      const sentByApp = event.isSelf && this.sentIds.has(event.messageId);
-      this.emit("inbound", event, { sentByApp });
+      const byApp = () => event.isSelf && (this.sentIds.has(event.messageId) || this.sentTextRecently(event.threadId, event.text));
+      // Zalo có thể báo lại tin app vừa gửi TRƯỚC khi lệnh gửi trả về mã tin (từng gặp: tin chào riêng bị ghi là
+      // chủ tự gõ, trợ lý im 30 phút vì "chủ vừa nhắn tay"). Còn lệnh gửi đang chạy ở hội thoại này thì chờ xong mới xét.
+      if (event.isSelf && !byApp() && (this.inflight.get(event.threadId) ?? 0) > 0) {
+        void this.waitIdle(event.threadId, 30_000).then(() => this.emit("inbound", event, { sentByApp: byApp() }));
+        return;
+      }
+      this.emit("inbound", event, { sentByApp: byApp() });
     });
     api.listener.on("group_event", (raw) => {
       const change = normalizeGroupEvent(raw);
@@ -420,7 +429,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     await sleep(decision.waitMs);
     await api.sendTypingEvent(groupId, ZThreadType.Group).catch(() => undefined);
     await sleep(typingDelayMs(text));
-    const res = (await withTimeout(api.sendMessage({ msg: text, mentions }, groupId, ZThreadType.Group), SEND_TIMEOUT_MS, "Gửi tin")) as {
+    const res = (await this.tracked(groupId, text, () => withTimeout(api.sendMessage({ msg: text, mentions }, groupId, ZThreadType.Group), SEND_TIMEOUT_MS, "Gửi tin"))) as {
       message?: { msgId?: string | number } | null;
     };
     const id = String(res?.message?.msgId ?? "");
@@ -459,7 +468,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       }
       await api.sendTypingEvent(threadId, zType).catch(() => undefined);
       await sleep(typingDelayMs(part));
-      const res = (await withTimeout(api.sendMessage({ msg: part }, threadId, zType), SEND_TIMEOUT_MS, "Gửi tin")) as {
+      const res = (await this.tracked(threadId, part, () => withTimeout(api.sendMessage({ msg: part }, threadId, zType), SEND_TIMEOUT_MS, "Gửi tin"))) as {
         message?: { msgId?: string | number } | null;
       };
       const id = String(res?.message?.msgId ?? "");
@@ -539,14 +548,43 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     const decision = this.pacer.reserve(Date.now(), false);
     if (!decision.ok) throw new Error(decision.reason);
     await sleep(decision.waitMs);
-    const res = (await withTimeout(
-      api.sendMessage({ msg: "", attachments: imagePaths }, threadId, zType),
-      SEND_TIMEOUT_MS * 3,
-      "Gửi ảnh",
+    const res = (await this.tracked(threadId, null, () =>
+      withTimeout(api.sendMessage({ msg: "", attachments: imagePaths }, threadId, zType), SEND_TIMEOUT_MS * 3, "Gửi ảnh"),
     )) as { attachment?: { msgId?: string | number }[] };
     const ids = (res?.attachment ?? []).map((a) => String(a?.msgId ?? "")).filter(Boolean);
     for (const id of ids) this.sentIds.add(id);
     return ids;
+  }
+
+  /** Chạy một lệnh gửi, đánh dấu hội thoại đang có tin app gửi đi (nhớ nội dung trước khi gửi). */
+  private async tracked<T>(threadId: string, text: string | null, fn: () => Promise<T>): Promise<T> {
+    const now = Date.now();
+    if (text) {
+      const list = (this.recentTexts.get(threadId) ?? []).filter((x) => now - x.at < RECENT_TEXT_MS);
+      list.push({ text: text.trim(), at: now });
+      this.recentTexts.set(threadId, list.slice(-20));
+    }
+    this.inflight.set(threadId, (this.inflight.get(threadId) ?? 0) + 1);
+    try {
+      return await fn();
+    } finally {
+      const n = (this.inflight.get(threadId) ?? 1) - 1;
+      if (n > 0) this.inflight.set(threadId, n);
+      else this.inflight.delete(threadId);
+    }
+  }
+
+  /** App vừa gửi đúng nội dung này vào hội thoại trong 2 phút qua. */
+  private sentTextRecently(threadId: string, text: string | null): boolean {
+    if (!text) return false;
+    const t = text.trim();
+    const now = Date.now();
+    return (this.recentTexts.get(threadId) ?? []).some((x) => now - x.at < RECENT_TEXT_MS && x.text === t);
+  }
+
+  private async waitIdle(threadId: string, maxMs: number) {
+    const until = Date.now() + maxMs;
+    while ((this.inflight.get(threadId) ?? 0) > 0 && Date.now() < until) await sleep(200);
   }
 
   isConnected(): boolean {
@@ -595,6 +633,9 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     }
   }
 }
+
+/** Nhớ nội dung app vừa gửi ngần này để nhận ra tin Zalo báo lại. */
+const RECENT_TEXT_MS = 120_000;
 
 /** Khoá Zalo không được người giữ ghi lại quá ngần này thì coi là bỏ quên. */
 export const LOCK_STALE_MS = 120_000;

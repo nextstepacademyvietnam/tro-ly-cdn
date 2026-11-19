@@ -32,3 +32,23 @@ describe("khoá một nick một tiến trình", () => {
     expect(fs.existsSync(file)).toBe(false);
   });
 });
+
+describe("nhận ra tin Zalo báo lại là của app", () => {
+  it("trong lúc gửi: hội thoại được đánh dấu đang gửi, nội dung được nhớ trước khi Zalo trả mã tin", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cdn-echo-"));
+    const ch = new ZaloChannel({} as never, dir, 1) as unknown as {
+      tracked<T>(t: string, text: string | null, fn: () => Promise<T>): Promise<T>;
+      sentTextRecently(t: string, text: string | null): boolean;
+      inflight: Map<string, number>;
+    };
+    let during = { inflight: 0, known: false };
+    await ch.tracked("k1", "Chào anh, cảm ơn anh đã tham gia workshop", async () => {
+      during = { inflight: ch.inflight.get("k1") ?? 0, known: ch.sentTextRecently("k1", " Chào anh, cảm ơn anh đã tham gia workshop ") };
+    });
+    expect(during).toEqual({ inflight: 1, known: true });
+    expect(ch.inflight.has("k1")).toBe(false);
+    expect(ch.sentTextRecently("k1", "Chào anh, cảm ơn anh đã tham gia workshop")).toBe(true);
+    expect(ch.sentTextRecently("k1", "Tin chủ tự gõ")).toBe(false);
+    expect(ch.sentTextRecently("k2", "Chào anh, cảm ơn anh đã tham gia workshop")).toBe(false);
+  });
+});
