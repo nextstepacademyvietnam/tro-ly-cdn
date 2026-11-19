@@ -103,7 +103,7 @@ end $$;
 
 -- Tạo mã mời (quản lý trở lên). Mã ngẫu nhiên 10 ký tự, khó đoán.
 create or replace function public.create_invite(p_org uuid, p_role text default 'sales', p_days integer default 14, p_max_uses integer default 50) returns text
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare v_code text;
 begin
   if not public.is_manager(p_org) then raise exception 'Chỉ quản lý mới tạo được mã mời'; end if;
@@ -149,8 +149,10 @@ begin
 end $$;
 
 revoke all on function public.create_org(text, text), public.create_invite(uuid, text, integer, integer), public.join_org(text, text),
-  public.set_display_name(uuid, text), public.leave_org(uuid) from public;
+  public.set_display_name(uuid, text), public.leave_org(uuid) from public, anon;
 grant execute on function public.create_org(text, text), public.create_invite(uuid, text, integer, integer), public.join_org(text, text),
   public.set_display_name(uuid, text), public.leave_org(uuid), public.my_role(uuid), public.is_member(uuid), public.is_manager(uuid) to authenticated;
 grant select, update, delete on public.orgs, public.members to authenticated;
 grant select, insert, update, delete on public.invites, public.devices to authenticated;
+-- Khách chưa đăng nhập (anon) không đụng được bảng nào.
+revoke all on public.orgs, public.members, public.invites, public.devices from anon;
