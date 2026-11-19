@@ -88,6 +88,8 @@ export interface ReportDeps {
   account(id: number): ReplierAccount | undefined;
   /** Uid admin của tài khoản (người nhận hợp lệ). */
   adminIds(accountId: number): string[];
+  /** Khung "Cloud của tôi" của nick (Zalo cho mã riêng); không có thì dùng mã nick. */
+  selfThread?(accountId: number): string;
   careDue?(accountId: number, now: number): number;
   now?: () => number;
   log?: (msg: string, extra?: object) => void;
@@ -168,7 +170,7 @@ export class Reports {
     ];
     const add = (label: string, value: string) => lines.push(`- ${label}: ${value}`);
     // Chat với admin và "Cloud của tôi" không phải khách: loại khỏi số liệu.
-    const ex = [...this.d.adminIds(accountId), acc.ownId()].filter(Boolean);
+    const ex = [...this.d.adminIds(accountId), acc.ownId(), this.d.selfThread?.(accountId) ?? ""].filter(Boolean);
     const exSql = ex.length ? ` AND m.thread_id NOT IN (${ex.map(() => "?").join(", ")})` : "";
     const userMsgs = `FROM messages m JOIN conversations c ON c.account_id = m.account_id AND c.thread_id = m.thread_id
       WHERE m.account_id = ? AND c.thread_type = 'user' AND m.created_at >= ?${exSql}`;
@@ -265,7 +267,7 @@ export class Reports {
     const admins = new Set(this.d.adminIds(r.accountId));
     let ok = 0;
     for (const to of r.recipients) {
-      const thread = to === "self" ? acc.ownId() : admins.has(to) ? to : "";
+      const thread = to === "self" ? this.d.selfThread?.(r.accountId) || acc.ownId() : admins.has(to) ? to : "";
       if (!thread) continue;
       try {
         const ids = await acc.sendText(thread, "user", text);

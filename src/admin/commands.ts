@@ -42,15 +42,32 @@ export class AdminStore {
   remove(accountId: number, userId: string) {
     this.db.prepare("DELETE FROM admins WHERE account_id = ? AND user_id = ?").run(accountId, userId);
   }
+
+  /**
+   * Mã khung "My Documents / Cloud của tôi" của nick. Zalo cho khung này một mã riêng, KHÁC mã của nick (gặp thật
+   * 19/11/2026), và thư viện không có cách hỏi, nên app học từ lệnh đầu tiên chủ gõ ở đó. Chưa biết thì "".
+   */
+  cloudThread(accountId: number): string {
+    const r = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(`zalo.cloudThread.${accountId}`) as { value: string } | undefined;
+    return r ? String(JSON.parse(r.value)) : "";
+  }
+
+  setCloudThread(accountId: number, threadId: string) {
+    this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(`zalo.cloudThread.${accountId}`, JSON.stringify(threadId));
+  }
 }
 
-/** Tin trong "Cloud của tôi" là lệnh khi mở đầu bằng "/", "bot" hoặc "trợ lý" (để ghi chú riêng không bị hiểu là lệnh). */
+/**
+ * Tin trong "Cloud của tôi" là lệnh khi mở đầu bằng "/" hoặc có chữ "bot" / "trợ lý" (đầu câu thì bỏ đi, VD
+ * "bot hôm nay thế nào"; giữa câu thì giữ nguyên, VD "hôm nay bot thế nào"). Ghi chú riêng không có hai chữ đó thì bỏ qua.
+ */
 export function commandText(text: string): string | null {
   const t = text.trim();
   if (t.startsWith("/")) return t.slice(1).trim() || null;
-  const m = /^(bot|tro ly)\b[\s,:.-]*/i.exec(fold(t));
-  if (!m) return null;
-  return t.slice(m[0].length).trim() || null;
+  const f = fold(t);
+  const m = /^(bot|tro ly)\b[\s,:.-]*/i.exec(f);
+  if (m) return t.slice(m[0].length).trim() || null;
+  return /(^|[^\p{L}])(bot|tro ly)([^\p{L}]|$)/iu.test(f) ? t : null;
 }
 
 const UNDO = new Set(["hoan tac", "huy", "huy bo", "undo", "hoan tac lenh vua roi"]);
@@ -132,9 +149,21 @@ export class AdminCommands {
   route(accountId: number, event: InboundEvent, ownId: string): { thread: string; text: string | null } | null {
     if (event.threadType !== "user") return null;
     if (event.isSelf) {
-      if (!ownId || event.threadId !== ownId || event.senderId !== ownId) return null;
+      if (!ownId || event.senderId !== ownId) return null;
       const t = commandText(event.text ?? "");
-      return t ? { thread: ownId, text: t } : null;
+      if (!t) return null;
+      const cloud = this.d.admins.cloudThread(accountId);
+      if (event.threadId === ownId || event.threadId === cloud) return { thread: event.threadId, text: t };
+      // Chưa biết mã Cloud của tôi: khung chỉ có tin của chính nick (chưa ai nhắn đến), không tên → là Cloud của tôi.
+      const acc = this.d.account(accountId);
+      const conv = acc?.inbox.conversation(event.threadId);
+      // Lần học đầu phải mở đầu bằng "bot" hoặc "/" để tin chủ nhắn khách mới có chữ "bot" giữa câu không bị nhận nhầm.
+      const strict = /^\/|^(bot|tro ly)\b/i.test(fold((event.text ?? "").trim()));
+      if (!cloud && strict && acc && conv && !conv.name && !acc.inbox.messages(event.threadId, 200).some((m) => m.direction === "in")) {
+        this.d.admins.setCloudThread(accountId, event.threadId);
+        return { thread: event.threadId, text: t };
+      }
+      return null;
     }
     if (event.senderId !== event.threadId || !this.d.admins.isAdmin(accountId, event.senderId)) return null;
     return { thread: event.threadId, text: event.isText ? (event.text ?? "").trim() : null };
@@ -257,7 +286,7 @@ export class AdminCommands {
 
   /** Tìm khách theo tên (không dấu, chứa) hoặc số điện thoại. */
   findCustomers(accountId: number, acc: ReplierAccount, q: string): { threadId: string; name: string }[] {
-    const skip = new Set([...this.d.admins.ids(accountId), acc.ownId()]);
+    const skip = new Set([...this.d.admins.ids(accountId), acc.ownId(), this.d.admins.cloudThread(accountId)]);
     const convs = acc.inbox.conversations().filter((c) => c.thread_type === "user" && !skip.has(c.thread_id));
     const digits = q.replace(/\D/g, "");
     if (digits.length >= 9) {

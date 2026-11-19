@@ -60,6 +60,8 @@ describe("lệnh admin qua Zalo", () => {
     expect(commandText("/tạm dừng")).toBe("tạm dừng");
     expect(commandText("Trợ lý, báo cáo tuần")).toBe("báo cáo tuần");
     expect(commandText("ghi chú: mua sữa")).toBeNull();
+    expect(commandText("hôm nay bot thế nào")).toBe("hôm nay bot thế nào");
+    expect(commandText("robot hút bụi")).toBeNull();
   });
 
   it("đọc thẻ hành động AI trả về", () => {
@@ -101,6 +103,19 @@ describe("lệnh admin qua Zalo", () => {
     await t.say("me", "bot tạm dừng trợ lý", { self: true });
     expect(t.store.isPaused(1)).toBe(true);
     expect(t.sent.at(-1)!.thread).toBe("me");
+  });
+
+  it("My Documents có mã riêng khác mã nick: lần đầu cần mở đầu bằng bot, học mã rồi thì bot giữa câu cũng được", async () => {
+    const t = setup("<so_lieu ky=\"ngay\"/>");
+    const self = async (text: string) => {
+      t.inbox.recordInbound({ threadId: "cloud9", threadType: "user", senderId: "me", displayName: "", messageId: `c${Math.random()}`, text, isText: true, isSelf: true, mentions: [], msgType: "webchat", receivedAt: NOW });
+      const r = t.cmds.route(1, { threadId: "cloud9", threadType: "user", senderId: "me", displayName: "", messageId: "z", text, isText: true, isSelf: true, mentions: [], msgType: "webchat", receivedAt: NOW }, "me");
+      return r;
+    };
+    expect(await self("hôm nay bot thế nào")).toBeNull();
+    expect(await self("bot hôm nay thế nào")).toEqual({ thread: "cloud9", text: "hôm nay thế nào" });
+    expect(t.admins.cloudThread(1)).toBe("cloud9");
+    expect(await self("hôm nay bot thế nào")).toEqual({ thread: "cloud9", text: "hôm nay bot thế nào" });
   });
 
   it("gắn nhãn theo tên khách; trùng nhiều người thì hỏi lại, không gắn", async () => {

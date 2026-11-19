@@ -259,6 +259,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     accountIds: () => accounts.list().map((a) => a.id),
     account: (id) => accounts.replierAccount(id),
     adminIds: (id) => admins.ids(id),
+    selfThread: (id) => admins.cloudThread(id),
     careDue: (id, now) => careStore.dueToday(id, now),
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
@@ -269,6 +270,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     accountIds: () => accounts.list().map((a) => a.id),
     account: (id) => accounts.replierAccount(id),
     careDue: (id, now) => careStore.dueToday(id, now),
+    selfThread: (id) => admins.cloudThread(id),
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
   replier.alertOwner = (id, text) => ownerAlerts.alert(id, text);

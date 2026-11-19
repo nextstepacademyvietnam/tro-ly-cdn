@@ -19,6 +19,8 @@ export interface OwnerAlertDeps {
   account(id: number): ReplierAccount | undefined;
   /** Số khách tới lượt chăm sóc hôm nay. */
   careDue?(accountId: number, now: number): number;
+  /** Khung "Cloud của tôi" của nick (Zalo cho mã riêng); không có thì dùng mã nick. */
+  selfThread?(accountId: number): string;
   now?: () => number;
   log?: (msg: string, extra?: object) => void;
 }
@@ -69,7 +71,7 @@ export class OwnerAlerts {
   async send(accountId: number, text: string): Promise<void> {
     const acc = this.d.account(accountId);
     if (!acc?.isConnected()) throw new Error("Zalo chưa kết nối");
-    const own = acc.ownId();
+    const own = this.d.selfThread?.(accountId) || acc.ownId();
     if (!own) throw new Error("Chưa biết mã Zalo của tài khoản này");
     await acc.sendText(own, "user", text);
   }
