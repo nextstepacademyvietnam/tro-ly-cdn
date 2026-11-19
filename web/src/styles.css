@@ -267,3 +267,10 @@ label.field > span { font-weight: 500; }
 .rep-check { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 14px; }
 .rep-check input { width: 16px; height: 16px; flex: none; }
 .rep-group .muted { grid-column: 1 / -1; margin: 0; }
+
+/* ----- Bản doanh nghiệp (Cài đặt → Doanh nghiệp) ----- */
+.org-head { align-items: flex-start; gap: 12px; }
+.org-icon { width: 22px; height: 22px; flex: none; margin-top: 2px; color: var(--primary-ink); }
+.org-form { max-width: 520px; }
+.org-form textarea { resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+.org-dl { max-width: 520px; }

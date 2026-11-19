@@ -21,6 +21,8 @@ import { OwnerAlerts } from "./ownerAlerts.js";
 import { AdminCommands, AdminStore } from "../admin/commands.js";
 import { Reports } from "../admin/reports.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { OrgConnection } from "../org/connection.js";
+import { registerOrgRoutes } from "./routes/org.js";
 import { CrmService, hashPhone, phonesIn } from "../crm/service.js";
 import { ZaloMatcher } from "../crm/zaloMatch.js";
 import { registerCrmRoutes } from "./routes/crm.js";
@@ -454,6 +456,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
   replier.admin = adminCommands;
   registerAdminRoutes(app, { accounts, admins, reports });
+
+  // ---------- Bản doanh nghiệp: nối máy này với công ty trên Supabase (tắt sẵn) ----------
+  const org = new OrgConnection({
+    settings,
+    version: deps.version ?? "",
+    deviceName: os.hostname(),
+    nicks: () => accounts.list().map((a) => ({ name: a.name, state: accounts.get(a.id).channel.getStatus().state })),
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  if (deps.dataDir) org.start();
+  app.addHook("onClose", async () => org.stop());
+  registerOrgRoutes(app, org);
   registerFeedbackRoutes(app, {
     url: deps.feedbackUrl ?? null,
     version: deps.version ?? "",

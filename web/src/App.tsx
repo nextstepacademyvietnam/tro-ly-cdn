@@ -3,6 +3,7 @@ import {
   Bell as BellIcon,
   Bot,
   Bug,
+  Building2,
   CalendarClock,
   HeartHandshake,
   ChartLine,
@@ -32,6 +33,7 @@ import { InboxPage } from "./pages/InboxPage";
 import { CarePage } from "./pages/CarePage";
 import { GroupsPage } from "./pages/GroupsPage";
 import { ModelsPage } from "./pages/ModelsPage";
+import { OrgPage } from "./pages/OrgPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { SchedulesPage } from "./schedules/SchedulePanels";
 import { Popover, initials, timeAndDay } from "./ui";
@@ -44,7 +46,7 @@ import "./mkt.css";
 import "./care.css";
 
 type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string; features?: { mkt?: boolean } };
-export type Page = "can" | "hop" | "chamsoc" | "schedules" | "groups" | "profiles" | "accounts" | "models" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
+export type Page = "can" | "hop" | "chamsoc" | "schedules" | "groups" | "profiles" | "accounts" | "models" | "org" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
 const MKT_PAGES: Page[] = ["mkt", "mkt-kenh", "mkt-ketnoi"];
 type Theme = "system" | "light" | "dark";
 
@@ -57,6 +59,7 @@ const TITLES: Record<Page, string> = {
   profiles: "Tính cách",
   accounts: "Tài khoản Zalo",
   models: "Mô hình AI",
+  org: "Doanh nghiệp",
   mkt: "Tổng quan MKT",
   "mkt-kenh": "Kênh",
   "mkt-ketnoi": "Kết nối",
@@ -265,6 +268,7 @@ export function App() {
           )}
           <div className="nav-section">Cài đặt</div>
           {nav("models", Cpu)}
+          {nav("org", Building2)}
         </nav>
         <div className="sidebar-foot">
           <div className="user-row">
@@ -378,6 +382,11 @@ export function App() {
             {page === "models" && (
               <div className="page narrow">
                 <ModelsPage />
+              </div>
+            )}
+            {page === "org" && (
+              <div className="page narrow">
+                <OrgPage />
               </div>
             )}
           </main>
