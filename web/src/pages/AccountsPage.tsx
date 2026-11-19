@@ -154,7 +154,7 @@ export function AccountsPage({
   );
 }
 
-/** Báo về Zalo của chính bạn (khung "Cloud của tôi"): việc gấp và tóm tắt cuối ngày. */
+/** Báo về Zalo của chính bạn (khung "Cloud của tôi"): việc gấp. Tóm tắt định kỳ nằm ở thẻ Báo cáo định kỳ. */
 function OwnerAlertsCard() {
   const [on, setOn] = useState<boolean | null>(null);
 
