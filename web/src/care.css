@@ -73,3 +73,7 @@
 .crm-form input { min-width: 0; flex: 1; height: 34px; }
 .crm-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .crm-refresh { display: inline-flex; align-items: center; gap: 4px; }
+.crm-save { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.crm-save-form { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 10px; border-radius: 12px; background: var(--background); }
+.crm-save-form input, .crm-save-form select { width: 100%; height: 34px; font-size: 13px; }
+.crm-save-form textarea { resize: vertical; font-size: 13px; }

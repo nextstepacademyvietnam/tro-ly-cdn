@@ -18,7 +18,7 @@ import { registerAssistRoutes } from "./routes/assist.js";
 import { AssistService } from "../assist/service.js";
 import { ConnectionWatch } from "./connectionWatch.js";
 import { OwnerAlerts } from "./ownerAlerts.js";
-import { CrmService } from "../crm/service.js";
+import { CrmService, phonesIn } from "../crm/service.js";
 import { registerCrmRoutes } from "./routes/crm.js";
 import { DEFAULT_RULES, type LeadRules } from "../mkt/connectors/pancake.js";
 import { CareStore } from "../care/store.js";
@@ -348,7 +348,28 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const crmRef = crm;
     app.addHook("onClose", async () => crmRef.stop());
   }
-  registerCrmRoutes(app, { accounts, crm: () => crm });
+  registerCrmRoutes(app, {
+    accounts,
+    crm: () => crm,
+    careNote: (id, threadId) => {
+      const p = careStore.get(id, threadId);
+      return p ? [p.needs && `Nhu cầu: ${p.needs}`, p.summary && `Đã trao đổi: ${p.summary}`].filter(Boolean).join("\n") : "";
+    },
+  });
+  // Khách vừa để lại số điện thoại mà CRM chưa có (và chưa lưu): báo chủ một lần cho mỗi số.
+  replier.onCustomerMessage = (id, e) => {
+    if (!crm?.available() || e.threadType !== "user" || !e.text) return;
+    const phones = phonesIn(e.text);
+    if (!phones.length) return;
+    const svc = accounts.get(id);
+    const conv = svc.inbox.conversation(e.threadId);
+    if (!conv || (conv as { crm_phone_noticed?: string }).crm_phone_noticed === phones[0]) return;
+    deps.db.prepare("UPDATE conversations SET crm_phone_noticed = ? WHERE account_id = ? AND thread_id = ?").run(phones[0]!, id, e.threadId);
+    if (crm.matches(phones).length || crm.saved(id, e.threadId).length) return;
+    const text = `${conv.name || e.displayName || "Khách"} vừa để lại số ${phones[0]}, chưa có trong CRM. Mở hội thoại, mục "Khách trong CRM" để lưu.`;
+    assistant.notify(id, "draft", text, e.threadId);
+    ownerAlerts.alert(id, text);
+  };
   registerFeedbackRoutes(app, {
     url: deps.feedbackUrl ?? null,
     version: deps.version ?? "",

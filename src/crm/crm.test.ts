@@ -66,3 +66,38 @@ describe("tra khách trong CRM", () => {
     expect(t.crm.indexedAt()).toBe(NOW);
   });
 });
+
+describe("lưu lead vào CRM", () => {
+  it("lần đầu tạo bản ghi, lần sau cập nhật đúng bản ghi; chỉ ghi trường bảng có; tra ra ngay", async () => {
+    const db = openDb(":memory:");
+    const inbox = new Inbox(db, 1);
+    const calls: { method: string; url: string; body: { record: Record<string, string> } | null }[] = [];
+    const fake = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ method, url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (String(url).includes("/crm/tables")) {
+        return new Response(JSON.stringify({ tables: [
+          { name: "Contact", label: "Liên hệ", sections: [{ fields: [{ name: "Name" }, { name: "Phone" }, { name: "Note" }] }] },
+          { name: "lien_he_moi__bot", label: "Liên hệ mới - Bot", sections: [{ fields: [{ name: "Name" }, { name: "Phone" }, { name: "bot_care_summary" }] }] },
+        ] }));
+      }
+      return new Response(JSON.stringify({ data: { record: { id: "r1", Name: "Anh Long", Status: "Mới-x", CreatedOn: "2026-11-18 03:00:00" }, success: true } }));
+    }) as typeof fetch;
+    const crm = new CrmService({ db, cred: () => ({ apiKey: "k", shopId: "s", contactTable: "Contact", workshopTable: "" }), fetch: fake, now: () => NOW });
+    const tables = await crm.tables();
+    expect(crm.defaultTable(tables)).toBe("lien_he_moi__bot");
+    await expect(crm.saveLead(1, "k1", { table: "lien_he_moi__bot", name: "", phone: "123", note: "" })).rejects.toThrow(/chưa đúng/);
+    const a = await crm.saveLead(1, "k1", { table: "lien_he_moi__bot", name: "Anh Long", phone: "0912 345 678", note: "Hỏi lịch khai giảng" });
+    expect(a).toEqual({ recordId: "r1", created: true });
+    const post = calls.find((c) => c.method === "POST")!;
+    expect(post.url).toContain("/crm/lien_he_moi__bot/records");
+    expect(post.body).toEqual({ record: { Name: "Anh Long", Phone: "0912345678", bot_care_summary: "Hỏi lịch khai giảng" } });
+    expect(crm.matches(["0912345678"]).map((m) => m.recordId)).toEqual(["r1"]);
+    const b = await crm.saveLead(1, "k1", { table: "lien_he_moi__bot", name: "Anh Long", phone: "0912345678", note: "Đã hẹn gọi thứ 5" });
+    expect(b.created).toBe(false);
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { record: { id: "r1", bot_care_summary: "Đã hẹn gọi thứ 5" } } });
+    expect(crm.saved(1, "k1")).toHaveLength(1);
+    expect(crm.defaultTable(tables)).toBe("lien_he_moi__bot");
+    void inbox;
+  });
+});

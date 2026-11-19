@@ -408,6 +408,17 @@ const MIGRATIONS: string[] = [
    );
    ALTER TABLE contacts ADD COLUMN phone TEXT NOT NULL DEFAULT '';
    UPDATE contacts SET fetched_at = 0 WHERE gender_source <> 'chu';`,
+  // Lưu lead từ Zalo vào Pancake CRM: nhớ hội thoại nào đã thành bản ghi nào (lần sau thì cập nhật, không tạo trùng).
+  `CREATE TABLE crm_saved (
+     account_id INTEGER NOT NULL,
+     thread_id TEXT NOT NULL,
+     table_name TEXT NOT NULL,
+     record_id TEXT NOT NULL,
+     phone TEXT NOT NULL DEFAULT '',
+     at INTEGER NOT NULL,
+     PRIMARY KEY (account_id, thread_id, table_name)
+   );
+   ALTER TABLE conversations ADD COLUMN crm_phone_noticed TEXT NOT NULL DEFAULT '';`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

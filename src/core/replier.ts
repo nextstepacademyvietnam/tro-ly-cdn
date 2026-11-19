@@ -61,6 +61,8 @@ export class Replier {
    * không chỉ dựa vào 30 tin gần nhất. Bộ chăm sóc gắn vào; trả "" khi chưa có hồ sơ.
    */
   customerNote: ((accountId: number, threadId: string) => string) | null = null;
+  /** Mỗi tin khách vừa ghi vào hộp thư (VD bắt số điện thoại khách để lại để gợi ý lưu CRM). */
+  onCustomerMessage: ((accountId: number, event: InboundEvent) => void) | null = null;
   /** Báo chủ ngoài app (VD Zalo "Cloud của tôi") khi có việc gấp. */
   alertOwner: ((accountId: number, text: string, threadId: string) => void) | null = null;
 
@@ -82,6 +84,13 @@ export class Replier {
     if (sentByApp) return;
     const acc = this.account(accountId);
     if (!acc) return;
+    if (!event.isSelf) {
+      try {
+        this.onCustomerMessage?.(accountId, event);
+      } catch (err) {
+        this.log("Lỗi xử lý tin khách", { err: String(err) });
+      }
+    }
     if (event.isSelf) {
       if (isOwnerCommandChannel(event, acc.ownId(), false)) this.ownerCommand(acc, event);
       // Chủ tự trả lời → nháp đang chờ của hội thoại đó không còn đúng nữa.

@@ -6,6 +6,16 @@ import type { DB } from "../server/db.js";
 /** Làm mới chỉ mục CRM mỗi 6 giờ (API Pancake không lọc theo số nên phải đọc cả bảng). */
 export const REFRESH_MS = 6 * 3_600_000;
 const META_KEY = "crm.indexedAt";
+const SAVE_TABLE_KEY = "crm.saveTable";
+/** Bảng CRM NSG lập riêng cho bot ghi khách mới. */
+const BOT_TABLE = "lien_he_moi__bot";
+const API = "https://pos.pages.fm/api/v1";
+
+export interface CrmTable {
+  name: string;
+  label: string;
+  fields: string[];
+}
 
 export interface CrmCred {
   apiKey: string;
@@ -238,6 +248,101 @@ export class CrmService {
       lines.push(`${head}${m.status ? `, trạng thái ${m.status}` : ""}${fields.length ? `; ${fields.join("; ")}` : ""}`);
     }
     return lines.join("\n");
+  }
+
+  // ---------- Ghi lead vào CRM ----------
+
+  private tablesCache: { at: number; list: CrmTable[] } | null = null;
+
+  /** Các bảng CRM của shop (tên, nhãn, các trường), nhớ 10 phút. */
+  async tables(): Promise<CrmTable[]> {
+    if (this.tablesCache && this.now() - this.tablesCache.at < 600_000) return this.tablesCache.list;
+    const cred = this.d.cred();
+    if (!cred) throw new Error("Chưa nối Pancake CRM");
+    const res = await (this.d.fetch ?? fetch)(
+      `${API}/shops/${encodeURIComponent(cred.shopId)}/crm/tables?${new URLSearchParams({ api_key: cred.apiKey })}`,
+      { signal: AbortSignal.timeout(30_000) },
+    );
+    const j = (await res.json().catch(() => ({}))) as { tables?: { name?: string; label?: string; is_removed?: boolean; sections?: { fields?: { name?: string }[] }[] }[]; message?: string };
+    if (!res.ok || !Array.isArray(j.tables)) throw new Error(`Pancake trả lỗi ${res.status}${j.message ? `: ${j.message}` : ""}`);
+    const list = j.tables
+      .filter((t) => t.name && !t.is_removed && (t.sections ?? []).length)
+      .map((t) => ({
+        name: String(t.name),
+        label: String(t.label ?? t.name),
+        fields: (t.sections ?? []).flatMap((s) => (s.fields ?? []).map((f) => String(f.name ?? ""))).filter(Boolean),
+      }));
+    this.tablesCache = { at: this.now(), list };
+    return list;
+  }
+
+  /** Bảng mặc định để lưu lead: lần lưu trước, rồi bảng "Liên hệ mới - Bot" nếu có, rồi bảng lead chính. */
+  defaultTable(list: CrmTable[]): string {
+    const r = this.d.db.prepare("SELECT value FROM settings WHERE key = ?").get(SAVE_TABLE_KEY) as { value: string } | undefined;
+    const last = r ? String(JSON.parse(r.value)) : "";
+    if (last && list.some((t) => t.name === last)) return last;
+    if (list.some((t) => t.name === BOT_TABLE)) return BOT_TABLE;
+    return this.d.cred()?.contactTable ?? list[0]?.name ?? "";
+  }
+
+  saved(accountId: number, threadId: string): { table: string; recordId: string; phone: string; at: number }[] {
+    return (
+      this.d.db.prepare("SELECT table_name, record_id, phone, at FROM crm_saved WHERE account_id = ? AND thread_id = ? ORDER BY at DESC").all(accountId, threadId) as {
+        table_name: string;
+        record_id: string;
+        phone: string;
+        at: number;
+      }[]
+    ).map((r) => ({ table: r.table_name, recordId: r.record_id, phone: r.phone, at: Number(r.at) }));
+  }
+
+  /**
+   * Lưu khách vào một bảng CRM: lần đầu tạo bản ghi, lần sau (cùng hội thoại, cùng bảng) thì cập nhật bản ghi đó.
+   * Chỉ ghi các trường bảng có (Tên, Số điện thoại, Ghi chú; bảng bot thì thêm tóm tắt chăm sóc).
+   */
+  async saveLead(
+    accountId: number,
+    threadId: string,
+    input: { table: string; name: string; phone: string; note: string },
+  ): Promise<{ recordId: string; created: boolean }> {
+    const cred = this.d.cred();
+    if (!cred) throw new Error("Chưa nối Pancake CRM");
+    const name = input.name.trim().slice(0, 200);
+    const phone = input.phone.trim() ? normPhone(input.phone) : "";
+    if (input.phone.trim() && !(phone && /^0\d{9}$/.test(phone))) throw new Error("Số điện thoại chưa đúng (cần 10 số, VD 0912345678)");
+    if (!name && !phone) throw new Error("Cần ít nhất tên hoặc số điện thoại");
+    const table = (await this.tables()).find((t) => t.name === input.table);
+    if (!table) throw new Error("Không có bảng này trong CRM");
+    const has = (f: string) => table.fields.includes(f);
+    const note = input.note.trim().slice(0, 3000);
+    const record: Record<string, string> = {};
+    if (has("Name") && name) record.Name = name;
+    if (has("Phone") && phone) record.Phone = phone;
+    if (has("Note") && note) record.Note = note;
+    if (has("bot_care_summary") && note) record.bot_care_summary = note;
+    const prev = this.saved(accountId, threadId).find((s) => s.table === table.name);
+    if (prev) record.id = prev.recordId;
+    const res = await (this.d.fetch ?? fetch)(
+      `${API}/shops/${encodeURIComponent(cred.shopId)}/crm/${encodeURIComponent(table.name)}/records?${new URLSearchParams({ api_key: cred.apiKey })}`,
+      { method: prev ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ record }), signal: AbortSignal.timeout(30_000) },
+    );
+    const j = (await res.json().catch(() => ({}))) as { data?: { record?: Row; success?: boolean }; record?: Row; success?: boolean; message?: string };
+    const rec = j.data?.record ?? j.record;
+    const id = text(rec?.id) || prev?.recordId || "";
+    if (!res.ok || !id) throw new Error(`Pancake không lưu được${j.message ? `: ${j.message}` : ` (mã ${res.status})`}`);
+    const now = this.now();
+    this.d.db
+      .prepare("INSERT OR REPLACE INTO crm_saved (account_id, thread_id, table_name, record_id, phone, at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(accountId, threadId, table.name, id, phone ?? "", now);
+    this.d.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(SAVE_TABLE_KEY, JSON.stringify(table.name));
+    // Tra ra ngay, không phải chờ lần đọc lại CRM.
+    if (phone) {
+      const data = { kind: "lead", name: name || text(rec?.Name), status: text(rec?.Status) ? "Mới" : "", link: text(rec?.pancake_link), fields: note ? [["Ghi chú", note.slice(0, 300)]] : [] };
+      this.d.db
+        .prepare("INSERT OR REPLACE INTO crm_index (phone_hash, table_name, record_id, created_on, data) VALUES (?, ?, ?, ?, ?)")
+        .run(hashPhone(phone), table.name, id, text(rec?.CreatedOn) || new Date(now).toISOString(), JSON.stringify(data));
+    }
+    return { recordId: id, created: !prev };
   }
 
   start() {
