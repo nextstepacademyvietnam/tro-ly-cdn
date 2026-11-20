@@ -40,6 +40,8 @@ interface Conversation {
   handoff_reason: string;
   handoff_until: number;
   no_proactive: number;
+  /** Nhóm: 1 = trợ lý tự trả lời câu hỏi, không cần ai tag. */
+  group_auto?: number;
   /** Chỉ chat riêng: "nam" | "nu" | "" và nguồn ("zalo" theo hồ sơ, "chu" bạn sửa tay). */
   gender: "nam" | "nu" | "";
   genderSource: "zalo" | "chu" | "";
@@ -487,6 +489,15 @@ export function InboxPage({
                 block
               />
               <p className="info-hint">Đổi ở đây hay trên điện thoại đều được, hai bên luôn khớp.</p>
+              {current.thread_type === "group" && (
+                <GroupAuto
+                  key={`ga-${current.thread_id}`}
+                  threadId={current.thread_id}
+                  on={Boolean(current.group_auto)}
+                  hasBot={current.bot.kind === "profile"}
+                  onChanged={(v) => setConversations((list) => list.map((c) => (c.thread_id === current.thread_id ? { ...c, group_auto: v ? 1 : 0 } : c)))}
+                />
+              )}
               {current.bot.kind === "none" && current.suggestion && (
                 <LabelSuggestion conversation={current} profiles={profiles} onAssign={(v) => assign([current.thread_id], v)} onChanged={load} />
               )}
@@ -908,6 +919,39 @@ function LabelSuggestion({
           Bỏ qua
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Nhóm: bật trợ lý tự trả lời câu hỏi (không cần tag). Mặc định chỉ trả lời khi được tag hoặc trả lời vào tin của trợ lý. */
+function GroupAuto({ threadId, on, hasBot, onChanged }: { threadId: string; on: boolean; hasBot: boolean; onChanged: (v: boolean) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const toggle = async (v: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/zalo/conversations/${encodeURIComponent(threadId)}/group-auto`, { method: "PUT", body: { on: v } });
+      onChanged(v);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="group-auto">
+      <label className="inline check">
+        <input type="checkbox" checked={on} disabled={busy} onChange={(e) => toggle(e.target.checked)} /> Tự trả lời câu hỏi trong nhóm
+      </label>
+      <p className="info-hint">
+        {on
+          ? "Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được (tối đa 4 tin/giờ). Chuyện trò, câu hỏi dành cho người khác hay chuyện tiền thì im lặng."
+          : "Đang tắt: trợ lý chỉ trả lời khi có người tag nick này hoặc trả lời vào tin của trợ lý."}{" "}
+        Bạn nhắn tay trong nhóm thì trợ lý nhường 5 phút.
+      </p>
+      {on && !hasBot && <div className="notice warn small">Nhóm chưa gắn nhãn tính cách nên trợ lý chưa trả lời. Gắn nhãn ở ô trên.</div>}
+      {error && <div className="notice bad small">{error}</div>}
     </div>
   );
 }

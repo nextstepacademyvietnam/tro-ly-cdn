@@ -52,6 +52,29 @@ describe("luật hệ thống trước khi gọi AI", () => {
     expect(decide(base({ conv: g, event: gev({ text: "@Thảo\nTrợ lý dừng lại" }) })).act).toBe("group_stop");
   });
 
+  it("nhóm: chủ nhắn tay chỉ nhường 5 phút (chat riêng vẫn 30 phút)", () => {
+    const g = { thread_id: "9", thread_type: "group" as const, assigned_profile_id: null, assigned_off: 0, handoff_until: 0 };
+    const gev = ev({ threadId: "9", threadType: "group", senderId: "u5", mentions: [OWN] });
+    expect(decide(base({ conv: g, event: gev, lastOwnerAt: NOW - 4 * 60_000 })).act).toBe("skip");
+    expect(decide(base({ conv: g, event: gev, lastOwnerAt: NOW - 9 * 60_000 })).act).toBe("reply");
+    expect(decide(base({ lastOwnerAt: NOW - 9 * 60_000 })).act).toBe("skip");
+  });
+
+  it("nhóm bật tự trả lời: câu hỏi chung thì trả lời (ambient); chuyện trò, gọi người khác, chuyện tiền thì im", () => {
+    const g = { thread_id: "9", thread_type: "group" as const, assigned_profile_id: null, assigned_off: 0, handoff_until: 0, group_auto: 1 };
+    const gev = (o: Partial<InboundEvent>) => ev({ threadId: "9", threadType: "group", senderId: "u5", ...o });
+    expect(decide(base({ conv: g, event: gev({ text: "Cho em hỏi lịch học tuần sau thế nào ạ" }) }))).toMatchObject({ act: "reply", ambient: true });
+    expect(decide(base({ conv: g, event: gev({ text: "Link đăng ký ở đâu vậy mọi người?" }) }))).toMatchObject({ act: "reply", ambient: true });
+    expect(decide(base({ conv: g, event: gev({ text: "Giảm 1 nửa kkk" }) }))).toMatchObject({ act: "skip", reason: expect.stringMatching(/không phải câu hỏi/) });
+    expect(decide(base({ conv: g, event: gev({ text: "Chị ơi chị bán ở đâu?", mentions: ["u7"] }) })).act).toBe("skip");
+    expect(decide(base({ conv: g, event: gev({ text: "Thật à?", quoteOwnerId: "u7" }) })).act).toBe("skip");
+    expect(decide(base({ conv: g, event: gev({ text: "Em đã chuyển khoản rồi sao chưa thấy xác nhận?" }) })).act).toBe("skip");
+    // Được tag thì vẫn là trả lời bình thường (không ambient).
+    expect(decide(base({ conv: g, event: gev({ text: "ok", mentions: [OWN] }) }))).toEqual({ act: "reply", profile: expect.anything() });
+    // Tắt thì như cũ.
+    expect(decide(base({ conv: { ...g, group_auto: 0 }, event: gev({ text: "Lịch học thế nào ạ?" }) })).act).toBe("skip");
+  });
+
   it("chuyển người thật theo chủ đề, có và không dấu; ảnh trong chat riêng cũng chuyển", () => {
     expect(decide(base({ event: ev({ text: "Chị chuyển khoản rồi nhé em" }) }))).toMatchObject({ act: "handoff", reason: "Liên quan tiền đã chuyển" });
     expect(decide(base({ event: ev({ text: "toi muon khieu nai" }) }))).toMatchObject({ act: "handoff", reason: "Khiếu nại / đòi tiền" });
@@ -157,6 +180,21 @@ describe("luồng trả lời", () => {
     expect(t.sent.at(-1)).toEqual({ thread: "g9", text: "Mẹo ngày mai" });
     expect(t.sentOpts.at(-1)).toMatchObject({ mentionAll: true, urgency: 2 });
     expect(t.inbox.messages("g9").at(-1)?.text).toBe("@All Mẹo ngày mai");
+  });
+
+  it("nhóm tự trả lời: AI im thì thôi, AI đòi chuyển người thì cũng im (không khoá nhóm), quá 4 tin/giờ thì không gọi AI", async () => {
+    const t = setup({ reply: "Dạ lịch học tối thứ 3 lúc 20h ạ." });
+    const gq = (text: string) => ev({ threadId: "g9", threadType: "group", senderId: "u5", displayName: "Tú", text, messageId: `q${Math.random()}` });
+    t.inbox.ensureConversation("g9", "group", "Nhóm học viên");
+    t.inbox.setGroupAuto("g9", true);
+    await t.receive(gq("Cho em hỏi lịch học thế nào ạ?"));
+    expect(t.sent.at(-1)).toEqual({ thread: "g9", text: "Dạ lịch học tối thứ 3 lúc 20h ạ." });
+    expect(t.calls.at(-1)!.system).toContain("KHÔNG gọi tên bạn");
+    for (let i = 0; i < 3; i++) await t.receive(gq(`Hỏi thêm ${i} được không ạ?`));
+    const calls = t.calls.length;
+    await t.receive(gq("Còn câu nữa được không ạ?"));
+    expect(t.calls.length).toBe(calls);
+    expect(t.inbox.conversation("g9")?.handoff_until).toBe(0);
   });
 
   it("AI chọn im lặng thì không gửi gì", async () => {

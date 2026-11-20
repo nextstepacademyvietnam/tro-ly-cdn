@@ -28,6 +28,8 @@ export interface ConversationRow {
   suggest_reason: string;
   suggest_checked_at: number;
   suggest_dismissed: number;
+  /** Nhóm: 1 = trợ lý tự trả lời câu hỏi trong nhóm, không cần ai tag. */
+  group_auto: number;
 }
 
 export interface MessageRow {
@@ -218,6 +220,10 @@ export class Inbox {
 
   clearHandoff(threadId: string) {
     this.setHandoff(threadId, 0, "");
+  }
+
+  setGroupAuto(threadId: string, value: boolean) {
+    this.db.prepare("UPDATE conversations SET group_auto = ? WHERE account_id = ? AND thread_id = ? AND thread_type = 'group'").run(value ? 1 : 0, this.accountId, threadId);
   }
 
   setNoProactive(threadId: string, value: boolean) {

@@ -239,6 +239,15 @@ export function registerAccountRoutes(
     return { ok: true };
   });
 
+  // Nhóm: bật / tắt trợ lý tự trả lời câu hỏi (không cần ai tag).
+  app.put<{ Params: { id: string }; Body: { on?: boolean } }>("/api/zalo/conversations/:id/group-auto", async (req, reply) => {
+    const s = svc(req);
+    const c = s.inbox.conversation(req.params.id);
+    if (!c || c.thread_type !== "group") return reply.code(400).send({ error: "Chỉ bật được cho nhóm" });
+    s.inbox.setGroupAuto(req.params.id, Boolean(req.body?.on));
+    return { groupAuto: Boolean(req.body?.on) };
+  });
+
   /**
    * Gắn tính cách hàng loạt = gắn NHÃN THẬT trong Zalo (thấy được và sửa được trên điện thoại).
    * value: id tính cách (gắn nhãn của nó) | "off" (gắn nhãn tắt bot) | null (gỡ mọi nhãn trợ lý).

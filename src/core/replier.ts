@@ -3,7 +3,7 @@ import { type InboundEvent, MessageBatcher, type ThreadType, isOwnerCommandChann
 import type { ChatMessage, Engine } from "../engines/index.js";
 import type { AssistantStore, Draft } from "./assistantStore.js";
 import { type Profile, type ProfileStore, resolveProfile } from "./profiles.js";
-import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply } from "./replyPolicy.js";
+import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply, GROUP_AUTO_PER_HOUR } from "./replyPolicy.js";
 
 /** Những gì bộ trả lời cần từ một tài khoản Zalo (tách ra để test không cần Zalo thật). */
 export interface ReplierAccount {
@@ -219,7 +219,7 @@ export class Replier {
         this.handoff(acc, event, who, d.reason);
         return;
       case "reply":
-        await this.reply(acc, event, d.profile, who);
+        await this.reply(acc, event, d.profile, who, Boolean(d.ambient));
     }
   }
 
@@ -260,7 +260,7 @@ export class Replier {
   private async generate(
     acc: ReplierAccount,
     engine: Engine,
-    t: { threadId: string; threadType: ThreadType; personName: string; senderId: string; who: string },
+    t: { threadId: string; threadType: ThreadType; personName: string; senderId: string; who: string; ambient?: boolean },
     profile: Profile,
   ): Promise<string | null> {
     const isGroup = t.threadType === "group";
@@ -275,6 +275,7 @@ export class Replier {
         personName: t.personName,
         sendMode: profile.sendMode,
         salutation: acc.salutation(t.senderId),
+        ambient: t.ambient,
       }) +
       "\n\n" +
       this.profiles.compose(profile.id, undefined, this.now()) +
@@ -309,7 +310,9 @@ export class Replier {
     return this.store.addDraft(accountId, threadId, profile.id, parsed.text, parsed.handoff, this.now());
   }
 
-  private async reply(acc: ReplierAccount, event: InboundEvent, profile: Profile, who: string) {
+  private async reply(acc: ReplierAccount, event: InboundEvent, profile: Profile, who: string, ambient = false) {
+    // Nhóm tự trả lời: giới hạn số tin mỗi giờ để trợ lý không lấn át nhóm (và nick không bị Zalo hạn chế).
+    if (ambient && acc.inbox.aiSentSince(event.threadId, this.now() - 3_600_000) >= GROUP_AUTO_PER_HOUR) return;
     const engine = this.engine();
     if (!engine) {
       this.store.notify(acc.accountId, "error", `Chưa cấu hình mô hình AI nên trợ lý chưa trả lời ${who}.`, event.threadId);
@@ -321,16 +324,19 @@ export class Replier {
       raw = await this.generate(
         acc,
         engine,
-        { threadId: event.threadId, threadType: event.threadType, personName: event.displayName, senderId: event.senderId, who },
+        { threadId: event.threadId, threadType: event.threadType, personName: event.displayName, senderId: event.senderId, who, ambient },
         profile,
       );
     } catch (err) {
+      if (ambient) return; // không ai gọi trợ lý: lỗi AI không cần làm phiền chủ
       this.store.notify(acc.accountId, "error", `AI lỗi khi trả lời ${who}: ${(err as Error).message}. Không có tin nào được gửi.`, event.threadId);
       return;
     }
     if (raw === null) return;
     const parsed = parseReply(raw);
     if (parsed.silent) return;
+    // Tự trả lời trong nhóm mà AI thấy cần người thật: im lặng, không chuyển cả nhóm sang chờ người.
+    if (ambient && parsed.handoff) return;
     // Trong nhóm, lời chuyển người thật không viết vào nhóm — chỉ báo chủ.
     const text = isGroup && parsed.handoff ? "" : parsed.text;
 

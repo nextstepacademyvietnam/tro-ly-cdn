@@ -330,3 +330,4 @@
 .sug-head svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--primary-ink); }
 .sug-box .info-hint { margin: 0; }
 .sug-actions { display: flex; gap: 6px; }
+.group-auto { margin-top: 12px; display: grid; gap: 4px; }

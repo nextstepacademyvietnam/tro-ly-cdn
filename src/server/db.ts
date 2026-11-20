@@ -485,6 +485,8 @@ const MIGRATIONS: string[] = [
    DROP TABLE schedule_runs;
    ALTER TABLE schedule_runs_v20 RENAME TO schedule_runs;
    CREATE INDEX schedule_runs_schedule ON schedule_runs (schedule_id, done_at DESC);`,
+  // v21: nhóm bật "tự trả lời câu hỏi" — trợ lý đọc mọi tin, chỉ trả lời câu hỏi tài liệu trả lời được (không cần tag).
+  `ALTER TABLE conversations ADD COLUMN group_auto INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {
