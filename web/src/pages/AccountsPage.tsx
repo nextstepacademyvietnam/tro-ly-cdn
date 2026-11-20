@@ -25,12 +25,17 @@ function usePolling(fn: () => void, ms: number) {
 }
 
 /** Cài đặt → Tài khoản Zalo: kết nối nick của tài khoản đang chọn (QR, nối lại, đăng xuất), đổi tên, xoá. */
+export type AccountSection = "connect" | "limits" | "reports";
+
+/** Cài đặt, ba tab theo nick đang chọn: Kết nối Zalo / Giới hạn & an toàn / Báo cáo & admin. */
 export function AccountsPage({
+  section = "connect",
   account,
   accounts,
   onAccountsChanged,
   onAddAccount,
 }: {
+  section?: AccountSection;
   account?: Account;
   accounts: Account[];
   onAccountsChanged: () => Promise<void>;
@@ -78,6 +83,17 @@ export function AccountsPage({
 
   if (!status) return <p className="muted">Đang tải…</p>;
   const connected = status.state === "connected" || status.state === "reconnecting";
+
+  if (section === "limits") return <SendLimitsCard key={`lim-${account?.id ?? 0}`} />;
+  if (section === "reports")
+    return connected ? (
+      <section className="stack">
+        <OwnerAlertsCard key={account?.id ?? 0} />
+        <AdminZalo key={`adm-${account?.id ?? 0}`} />
+      </section>
+    ) : (
+      <div className="notice warn">Kết nối nick Zalo ở tab Kết nối Zalo trước, rồi mới đặt báo cáo và admin được.</div>
+    );
 
   return (
     <section className="stack">
@@ -142,9 +158,6 @@ export function AccountsPage({
           </p>
         )}
       </div>
-      {connected && <OwnerAlertsCard key={account?.id ?? 0} />}
-      {connected && <SendLimitsCard key={`lim-${account?.id ?? 0}`} />}
-      {connected && <AdminZalo key={`adm-${account?.id ?? 0}`} />}
       <div>
         <button type="button" onClick={() => onAddAccount().catch(() => undefined)}>
           <Plus aria-hidden />

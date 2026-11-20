@@ -5,3 +5,4 @@ data-dev/
 *.log
 .env
 release/
+data-ui-test/

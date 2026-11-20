@@ -52,6 +52,7 @@ export function ScheduleForm({
   const [hasEnd, setHasEnd] = useState(Boolean(initial?.recurrence.endDate));
   const [mentionAll, setMentionAll] = useState(initial?.mentionAll ?? false);
   const [urgency, setUrgency] = useState<Urgency>(initial?.urgency ?? 0);
+  const [moreOpen, setMoreOpen] = useState(() => Boolean(initial && (initial.title || initial.mentionAll || initial.urgency)));
   const [aiMode, setAiMode] = useState<AiMode>(initial?.aiMode ?? "off");
   const [aiBrief, setAiBrief] = useState(initial?.aiBrief ?? "");
   const [aiProfileId, setAiProfileId] = useState<number | null>(initial?.aiProfileId ?? null);
@@ -199,6 +200,9 @@ export function ScheduleForm({
     }
   };
 
+  const moreSummary = [title.trim() ? `tên: ${title.trim()}` : "", mentionAll && groupCount > 0 ? "@All" : "", urgency ? URGENCY_LABEL[urgency] : ""]
+    .filter(Boolean)
+    .join(" · ") || "tên lịch, @All, mức quan trọng";
   return (
     <div className="modal" onClick={onClose}>
       <div className="card modal-body schedule-form" onClick={(e) => e.stopPropagation()}>
@@ -210,13 +214,9 @@ export function ScheduleForm({
         </div>
 
         <div className="form-scroll stack">
-          <label>
-            Tên lịch <span className="muted small">(tuỳ chọn, chỉ bạn thấy)</span>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="VD: Nhắc lịch học tối thứ 3" />
-          </label>
-
+          <section className="form-step">
+            <h3 className="form-step-title"><span className="form-step-num">1</span>Gửi tới ai</h3>
           <div className="stack-sm">
-            <span className="field-label">Gửi tới</span>
             <div className="chips">
               {targets.map((t) => (
                 <span key={t.threadId} className="chip">
@@ -248,8 +248,11 @@ export function ScheduleForm({
             )}
           </div>
 
+          </section>
+
+          <section className="form-step">
+            <h3 className="form-step-title"><span className="form-step-num">2</span>Nội dung</h3>
           <div className="stack-sm">
-            <span className="field-label">Nội dung</span>
             <div className="seg">
               {(
                 [
@@ -359,36 +362,11 @@ export function ScheduleForm({
           </div>
           )}
 
-          <div className="stack-sm">
-            <span className="field-label">Cách gửi</span>
-            <label className="inline check">
-              <input type="checkbox" checked={mentionAll && groupCount > 0} disabled={groupCount === 0} onChange={(e) => setMentionAll(e.target.checked)} /> Tag tất cả
-              mọi người trong nhóm <span className="muted small">(thêm @All ở đầu tin, cả nhóm nhận thông báo)</span>
-            </label>
-            {groupCount === 0 ? (
-              <span className="muted small">Chỉ dùng được khi gửi vào nhóm Zalo.</span>
-            ) : (
-              groupCount < targets.length && mentionAll && <span className="muted small">Người nhận chat riêng vẫn nhận tin bình thường, không có @All.</span>
-            )}
-            <div className="row">
-              <span className="small">Mức độ tin</span>
-              <div className="seg">
-                {([0, 1, 2] as Urgency[]).map((u) => (
-                  <button key={u} type="button" className={urgency === u ? "active" : ""} onClick={() => setUrgency(u)}>
-                    {URGENCY_LABEL[u]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {urgency > 0 && (
-              <span className="muted small">
-                Zalo gắn nhãn <b>{URGENCY_LABEL[urgency]}</b> lên tin để người nhận chú ý. Chỉ dùng cho tin thật sự cần, dùng nhiều người nhận sẽ quen và bỏ qua.
-              </span>
-            )}
-          </div>
+          </section>
 
+          <section className="form-step">
+            <h3 className="form-step-title"><span className="form-step-num">3</span>Khi nào <span className="muted small">(giờ Việt Nam)</span></h3>
           <div className="stack-sm">
-            <span className="field-label">Thời gian (giờ Việt Nam)</span>
             <div className="seg">
               {(
                 [
@@ -457,6 +435,46 @@ export function ScheduleForm({
               </div>
             )}
           </div>
+          </section>
+
+          <details className="form-more" open={moreOpen} onToggle={(e) => setMoreOpen((e.target as HTMLDetailsElement).open)}>
+            <summary>Tuỳ chọn thêm <span className="muted small">{moreSummary}</span></summary>
+            <div className="stack">
+            <label>
+              Tên lịch <span className="muted small">(tuỳ chọn, chỉ bạn thấy)</span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="VD: Nhắc lịch học tối thứ 3" />
+            </label>
+  
+              <div className="stack-sm">
+              <span className="field-label">Cách gửi trong nhóm</span>
+              <label className="inline check">
+                <input type="checkbox" checked={mentionAll && groupCount > 0} disabled={groupCount === 0} onChange={(e) => setMentionAll(e.target.checked)} /> Tag tất cả
+                mọi người trong nhóm <span className="muted small">(thêm @All ở đầu tin, cả nhóm nhận thông báo)</span>
+              </label>
+              {groupCount === 0 ? (
+                <span className="muted small">Chỉ dùng được khi gửi vào nhóm Zalo.</span>
+              ) : (
+                groupCount < targets.length && mentionAll && <span className="muted small">Người nhận chat riêng vẫn nhận tin bình thường, không có @All.</span>
+              )}
+              <div className="row">
+                <span className="small">Mức độ tin</span>
+                <div className="seg">
+                  {([0, 1, 2] as Urgency[]).map((u) => (
+                    <button key={u} type="button" className={urgency === u ? "active" : ""} onClick={() => setUrgency(u)}>
+                      {URGENCY_LABEL[u]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {urgency > 0 && (
+                <span className="muted small">
+                  Zalo gắn nhãn <b>{URGENCY_LABEL[urgency]}</b> lên tin để người nhận chú ý. Chỉ dùng cho tin thật sự cần, dùng nhiều người nhận sẽ quen và bỏ qua.
+                </span>
+              )}
+            </div>
+  
+              </div>
+          </details>
         </div>
 
         {error && <div className="notice bad">{error}</div>}

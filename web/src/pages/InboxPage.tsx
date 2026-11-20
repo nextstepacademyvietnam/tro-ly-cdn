@@ -22,6 +22,7 @@ import { type Account, type BotState, type Draft, type Profile, api } from "../a
 import { ScheduleForm } from "../schedules/ScheduleForm";
 import { CareSection } from "../care/CareSection";
 import { CrmSection } from "../crm/CrmSection";
+import { CareList } from "./CarePage";
 import { ScheduleSidebar } from "../schedules/SchedulePanels";
 import { Avatar, Popover, fullDate, shortTime, timeAndDay, waitLevel, waitText } from "../ui";
 
@@ -137,17 +138,21 @@ function TagBadge({ bot, profiles, offTag }: { bot: BotState; profiles: Profile[
   );
 }
 
+export type InboxMode = "can" | "care" | "all";
+
 export function InboxPage({
   account,
   mode,
   onModeChange,
   onGoAccounts,
   initialThread,
+  careDue,
 }: {
   account?: Account;
   initialThread?: string | null;
-  mode: "can" | "all";
-  onModeChange: (m: "can" | "all") => void;
+  mode: InboxMode;
+  onModeChange: (m: InboxMode) => void;
+  careDue?: number;
   onGoAccounts: () => void;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -208,8 +213,9 @@ export function InboxPage({
   // Màn rộng: mở sẵn hội thoại đầu danh sách, như wireframe.
   useEffect(() => {
     const shown = selected && visible.some((c) => c.thread_id === selected);
+    if (mode === "care") return;
     if (!shown && visible.length && window.matchMedia("(min-width: 1024px)").matches) setSelected(visible[0]!.thread_id);
-  }, [selected, visible]);
+  }, [selected, visible, mode]);
 
   const toggle = (id: string) =>
     setChecked((s) => {
@@ -241,7 +247,7 @@ export function InboxPage({
     }
   };
 
-  const current = visible.find((c) => c.thread_id === selected);
+  const current = (mode === "care" ? conversations : visible).find((c) => c.thread_id === selected);
   const checkedList = conversations.filter((c) => checked.has(c.thread_id));
   const filterCount = (showUser && showGroup ? 0 : 1) + (botFilter === "all" ? 0 : 1) + (genderFilter === "all" ? 0 : 1);
 
@@ -352,10 +358,14 @@ export function InboxPage({
             <button type="button" role="tab" aria-selected={mode === "can"} onClick={() => onModeChange("can")}>
               Cần xử lý {actionCount > 0 && <span className="num">{actionCount}</span>}
             </button>
+            <button type="button" role="tab" aria-selected={mode === "care"} onClick={() => onModeChange("care")}>
+              Chăm sóc {careDue ? <span className="num">{careDue}</span> : null}
+            </button>
             <button type="button" role="tab" aria-selected={mode === "all"} onClick={() => onModeChange("all")}>
               Tất cả
             </button>
           </div>
+          {mode !== "care" && (
           <div className="ib-search-row">
             <label className="ib-search">
               <Search aria-hidden />
@@ -432,7 +442,18 @@ export function InboxPage({
               )}
             </Popover>
           </div>
+          )}
         </div>
+        {mode === "care" ? (
+          <CareList
+            selected={selected}
+            onOpen={(id) => {
+              setSelected(id);
+              setInfoOpen(false);
+            }}
+          />
+        ) : (
+          <>
         {!labelsAvailable && <div className="notice warn ib-msg">Chưa đọc được nhãn Zalo (Zalo chưa kết nối).</div>}
         {notice && <div className="notice ok ib-msg">{notice}</div>}
         {assignError && <div className="notice bad ib-msg">{assignError}</div>}
@@ -456,6 +477,8 @@ export function InboxPage({
           </div>
         )}
         <ul className={checked.size ? "ib-rows picking" : "ib-rows"}>{body}</ul>
+          </>
+        )}
       </div>
 
       {/* Cột hội thoại + cột thông tin */}
@@ -502,12 +525,23 @@ export function InboxPage({
                 <LabelSuggestion conversation={current} profiles={profiles} onAssign={(v) => assign([current.thread_id], v)} onChanged={load} />
               )}
             </div>
+            {current.thread_type === "user" && (
+              <CallAs
+                key={current.thread_id}
+                conversation={current}
+                onChanged={(gender, genderSource) =>
+                  setConversations((list) => list.map((c) => (c.thread_id === current.thread_id ? { ...c, gender, genderSource } : c)))
+                }
+              />
+            )}
+            {current.thread_type === "user" && <CareSection key={`care-${current.thread_id}`} threadId={current.thread_id} />}
+            {current.thread_type === "user" && <CrmSection key={`crm-${current.thread_id}`} threadId={current.thread_id} />}
             <ScheduleSidebar
               key={`s-${current.thread_id}`}
               target={{ threadId: current.thread_id, threadType: current.thread_type, name: current.name }}
             />
-            <div className="info-sec">
-              <div className="info-title">Khách</div>
+            <details className="info-sec info-more">
+              <summary className="info-title">Chi tiết hội thoại</summary>
               <dl className="info-dl">
                 <dt>Loại</dt>
                 <dd>{current.thread_type === "group" ? "Nhóm" : "Chat riêng"}</dd>
@@ -516,18 +550,7 @@ export function InboxPage({
                 <dt>Nhận tin chủ động</dt>
                 <dd>{current.no_proactive ? "Không" : "Có"}</dd>
               </dl>
-              {current.thread_type === "user" && (
-                <CallAs
-                  key={current.thread_id}
-                  conversation={current}
-                  onChanged={(gender, genderSource) =>
-                    setConversations((list) => list.map((c) => (c.thread_id === current.thread_id ? { ...c, gender, genderSource } : c)))
-                  }
-                />
-              )}
-            </div>
-            {current.thread_type === "user" && <CrmSection key={`crm-${current.thread_id}`} threadId={current.thread_id} />}
-            {current.thread_type === "user" && <CareSection key={`care-${current.thread_id}`} threadId={current.thread_id} />}
+            </details>
           </aside>
         </>
       ) : (
@@ -946,63 +969,10 @@ function GroupAuto({ threadId, on, hasBot, onChanged }: { threadId: string; on: 
       </label>
       <p className="info-hint">
         {on
-          ? "Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được (số tin mỗi giờ chỉnh ở trang Tài khoản Zalo → Giới hạn tin tự gửi). Chuyện trò, câu hỏi dành cho người khác hay chuyện tiền thì im lặng."
-          : "Đang tắt: trợ lý trả lời khi có người tag nick này, trả lời vào tin của trợ lý, hoặc gọi bằng từ gọi bên dưới."}{" "}
-        Người vừa được trợ lý trả lời hỏi tiếp trong 10 phút thì không cần gọi lại. Bạn nhắn tay trong nhóm thì trợ lý nhường 5 phút.
+          ? "Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được. Chuyện trò, câu hỏi dành cho người khác hay chuyện tiền thì im lặng."
+          : "Đang tắt: trợ lý chỉ trả lời khi được tag, được trả lời vào tin, hoặc gọi bằng từ gọi (đặt ở trang Nhóm Zalo)."}
       </p>
-      <CallWords />
       {on && !hasBot && <div className="notice warn small">Nhóm chưa gắn nhãn tính cách nên trợ lý chưa trả lời. Gắn nhãn ở ô trên.</div>}
-      {error && <div className="notice bad small">{error}</div>}
-    </div>
-  );
-}
-
-/** Từ gọi trợ lý trong nhóm (VD "admin ơi"), tính như tag; dùng chung cho mọi nhóm của nick đang mở. */
-function CallWords() {
-  const [words, setWords] = useState<string[] | null>(null);
-  const [edit, setEdit] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    api<{ words: string[] }>("/api/zalo/call-words")
-      .then((r) => setWords(r.words))
-      .catch(() => setWords([]));
-  }, []);
-  if (words === null) return null;
-  const save = async () => {
-    setError("");
-    try {
-      const list = (edit ?? "").split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
-      const r = await api<{ words: string[] }>("/api/zalo/call-words", { method: "PUT", body: { words: list } });
-      setWords(r.words);
-      setEdit(null);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-  return (
-    <div className="call-words">
-      <span className="small">Từ gọi trợ lý (dùng cho mọi nhóm của nick này):</span>
-      {edit === null ? (
-        <div className="row">
-          <span className="small muted">{words.length ? words.join(", ") : "chưa có — chỉ tag mới gọi được"}</span>
-          <button type="button" className="link small" onClick={() => setEdit(words.join(", "))}>
-            Sửa
-          </button>
-        </div>
-      ) : (
-        <div className="stack-sm">
-          <input value={edit} onChange={(e) => setEdit(e.target.value)} placeholder="admin ơi, ad ơi, trợ lý ơi" autoFocus />
-          <span className="muted small">Cách nhau bằng dấu phẩy. Có dấu hay không dấu đều được.</span>
-          <div className="row">
-            <button type="button" className="small-btn" onClick={save}>
-              Lưu
-            </button>
-            <button type="button" className="link small" onClick={() => setEdit(null)}>
-              Huỷ
-            </button>
-          </div>
-        </div>
-      )}
       {error && <div className="notice bad small">{error}</div>}
     </div>
   );

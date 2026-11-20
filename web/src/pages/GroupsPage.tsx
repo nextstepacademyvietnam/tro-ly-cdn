@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { type Account, type Profile, api, getCurrentAccount, uploadImage } from "../api";
+import { CallWordsCard } from "./CallWordsCard";
 import { Popover } from "../ui";
 
 // ---------- Kiểu dữ liệu (khớp src/server/routes/groups.ts) ----------
@@ -247,6 +248,7 @@ export function GroupsPage({ account, onGoAccounts }: { account?: Account; onGoA
   return (
     <div className="grp-page">
       {body}
+      {!open && groups && <CallWordsCard key={account?.id ?? 0} />}
       {scanning && (
         <ScanDialog
           onClose={() => setScanning(false)}

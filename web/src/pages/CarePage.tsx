@@ -17,8 +17,11 @@ const endOfToday = () => {
   return d.getTime();
 };
 
-/** Trang Chăm sóc: mọi khách đang có kế hoạch chăm sóc chủ động, ai tới lượt hôm nay, ai sắp tới. */
-export function CarePage({ onOpen }: { onOpen: (threadId: string) => void }) {
+/**
+ * Hộp thư → tab Chăm sóc (cột danh sách): mọi khách đang có kế hoạch chăm sóc chủ động, ai tới lượt hôm nay, ai sắp tới.
+ * Bấm một khách là mở hội thoại ở cột giữa, như các tab khác của Hộp thư.
+ */
+export function CareList({ selected, onOpen }: { selected: string | null; onOpen: (threadId: string) => void }) {
   const [plans, setPlans] = useState<CarePlan[] | null>(null);
   const [filter, setFilter] = useState<Filter>("today");
   const [error, setError] = useState("");
@@ -50,20 +53,19 @@ export function CarePage({ onOpen }: { onOpen: (threadId: string) => void }) {
   const list = groups[filter];
 
   return (
-    <section className="care-page">
-      <p className="muted care-intro">
-        Trợ lý đọc lại hội thoại với từng khách gắn nhãn tính cách bật "Chăm sóc chủ động", ghi hồ sơ và đặt lịch chăm sóc. Tới lịch, trợ lý
-        soạn sẵn tin vào mục Cần xử lý để bạn duyệt rồi gửi.
-      </p>
-      <div className="ib-seg care-seg" role="tablist">
+    <>
+      <div className="care-tools">
+      <div className="ib-seg care-seg" role="tablist" aria-label="Lọc khách chăm sóc">
         {FILTERS.map((f) => (
           <button key={f.key} type="button" role="tab" aria-selected={filter === f.key} onClick={() => setFilter(f.key)}>
             {f.label} <span className="num">{groups[f.key].length}</span>
           </button>
         ))}
       </div>
-      {error && <div className="notice bad small">{error}</div>}
-      <div className="card care-list">
+      <p className="info-hint">Tới lịch, trợ lý soạn sẵn tin vào tab Cần xử lý để bạn duyệt rồi gửi.</p>
+      </div>
+      {error && <div className="notice bad small ib-msg">{error}</div>}
+      <div className="care-list">
         {plans === null ? (
           <p className="muted small care-empty">Đang tải…</p>
         ) : list.length === 0 ? (
@@ -79,7 +81,7 @@ export function CarePage({ onOpen }: { onOpen: (threadId: string) => void }) {
         ) : (
           <ul className="ib-rows care-rows">
             {list.map((p) => (
-              <li key={p.threadId} className="ib-row" onClick={() => onOpen(p.threadId)}>
+              <li key={p.threadId} className="ib-row" aria-current={p.threadId === selected ? "true" : undefined} onClick={() => onOpen(p.threadId)}>
                 <Avatar name={p.name || "Khách"} />
                 <div className="ib-row-main">
                   <div className="ib-row-top">
@@ -102,6 +104,6 @@ export function CarePage({ onOpen }: { onOpen: (threadId: string) => void }) {
           </ul>
         )}
       </div>
-    </section>
+    </>
   );
 }
