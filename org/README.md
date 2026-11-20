@@ -23,13 +23,28 @@ Máy chủ công ty …                            ──┘
 - Trang quản lý (`web/`): đăng nhập bằng mã email, tạo công ty, Tổng quan (thành viên, máy đang chạy, nick đang kết nối),
   Thành viên (đổi vai, gỡ người nghỉ, tạo / thu hồi mã kết nối).
 
+### Vai trò và quyền
+| Việc | Chủ công ty | Quản lý | Nhân viên kinh doanh |
+|---|---|---|---|
+| Xem thành viên, máy và nick Zalo đang chạy app | ✓ | ✓ | ✓ |
+| Nối app trên máy mình vào công ty | ✓ | ✓ | ✓ |
+| Mời nhân viên kinh doanh (tạo mã kết nối), gỡ nhân viên, thu hồi mã | ✓ | ✓ | — |
+| Mời quản lý, đổi vai Quản lý ↔ Nhân viên, gỡ quản lý | ✓ | — | — |
+| Chuyển quyền chủ công ty (chủ cũ thành quản lý) | ✓ | — | — |
+
+Luật nằm ở Postgres (RLS + quyền theo cột, `supabase/migrations/0001_nen.sql`, `0002_phan_quyen.sql`), không dựa vào giao diện:
+mã mời chỉ tạo qua hàm `create_invite`, không ai sửa được dòng của chủ công ty, sửa thành viên chỉ đổi được vai, gỡ ai thì máy
+của người đó biến khỏi danh sách. Người chưa đăng nhập không đọc được bảng nào.
+
 Các đợt tiếp: 2 kiến thức dùng chung · 3 bảng số liệu cả phòng · 4 giao / chuyển khách · 5 cài đặt dùng chung.
 
 ## Cài đặt (làm một lần)
 
 ### 1. Supabase
 1. Tạo project mới (gói trả phí sẵn có dùng được). Vùng gần Việt Nam nhất: Singapore.
-2. **SQL Editor** → dán toàn bộ `supabase/migrations/0001_nen.sql` → Run.
+2. **SQL Editor** → dán lần lượt từng file trong `supabase/migrations/` theo thứ tự (`0001_nen.sql`, `0002_phan_quyen.sql`) → Run.
+   Dùng chung project có sẵn cũng được (không tốn thêm phí): các bảng mới tên `orgs`, `members`, `invites`, `devices` — kiểm
+   trước là project chưa có bảng trùng tên.
 3. **Authentication → Providers → Email**: bật Email, bật "Confirm email".
 4. **Authentication → Email Templates**: app và trang quản lý đăng nhập bằng **mã 6 số**, nên thêm dòng
    `Mã đăng nhập: {{ .Token }}` vào **cả hai** mẫu **Confirm signup** (người mới) và **Magic Link** (người đã có tài khoản).

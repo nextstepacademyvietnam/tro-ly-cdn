@@ -58,8 +58,9 @@ export function OrgPage() {
           <div>
             <strong>Bản doanh nghiệp</strong>
             <p className="muted small alert-intro">
-              Dùng cho phòng kinh doanh: mỗi người chạy app trên máy mình với nick Zalo của mình, công ty dùng chung tính cách và kiến thức, trưởng phòng xem
-              số liệu cả phòng và giao khách trên trang quản lý. <b>Tin nhắn của khách vẫn chỉ nằm trên máy này.</b> Dùng một mình thì không cần nối.
+              Dùng cho phòng kinh doanh: mỗi người chạy app trên máy mình với nick Zalo của mình. Nối vào công ty thì quản lý thấy máy này và các nick Zalo
+              đang chạy trên trang quản lý (kiến thức dùng chung, số liệu cả phòng, giao khách sẽ có ở bản sau). <b>Tin nhắn của khách vẫn chỉ nằm trên máy
+              này.</b> Dùng một mình thì không cần nối.
             </p>
           </div>
         </div>

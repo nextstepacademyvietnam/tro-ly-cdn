@@ -62,3 +62,4 @@ tr:last-child td { border-bottom: none; }
   .side-foot { margin: 0 0 0 auto; display: flex; align-items: center; padding: 0; }
   .main { padding: 16px; }
 }
+.yes { color: var(--success); font-weight: 600; }

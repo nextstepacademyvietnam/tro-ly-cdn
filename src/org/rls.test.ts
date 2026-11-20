@@ -79,6 +79,47 @@ describe("RLS bản doanh nghiệp", () => {
     await expect(as("chu", "select public.leave_org($1)", [org])).rejects.toThrow(/Chủ công ty/);
   });
 
+  it("siết quyền: quản lý không tự tạo / sửa mã mời thành vai quản lý, chủ không tự hạ vai, chỉ đổi được cột cho phép, chuyển quyền chủ", async () => {
+    const { as, users } = await setup();
+    const [{ id: org }] = await as<{ id: string }>("chu", "select public.create_org('NSG', '') as id");
+    const [{ code: qlCode }] = await as<{ code: string }>("chu", "select public.create_invite($1, 'manager') as code", [org]);
+    const [{ code }] = await as<{ code: string }>("chu", "select public.create_invite($1, 'sales') as code", [org]);
+    await as("ql", "select * from public.join_org($1, '')", [qlCode]);
+    await as("nv", "select * from public.join_org($1, '')", [code]);
+
+    // Quản lý: không chèn thẳng mã mời, không đổi vai của mã mời; thu hồi thì được.
+    await expect(
+      as("ql", "insert into public.invites (code, org_id, role, created_by) values ('DE_DOAN', $1, 'manager', $2)", [org, users.ql]),
+    ).rejects.toThrow(/permission denied/);
+    await expect(as("ql", "update public.invites set role = 'manager' where code = $1", [code])).rejects.toThrow(/permission denied/);
+    await as("ql", "update public.invites set revoked = true where code = $1", [code]);
+    expect((await as<{ revoked: boolean }>("chu", "select revoked from public.invites where code = $1", [code]))[0]!.revoked).toBe(true);
+
+    // Chủ không tự hạ vai; không ai đổi email / công ty của thành viên.
+    await as("chu", "update public.members set role = 'manager' where user_id = $1", [users.chu]);
+    expect((await as<{ role: string }>("chu", "select role from public.members where user_id = $1", [users.chu]))[0]!.role).toBe("owner");
+    await expect(as("chu", "update public.members set email = 'gia@vd.vn' where user_id = $1", [users.nv])).rejects.toThrow(/permission denied/);
+    await expect(as("ql", "update public.orgs set created_at = now() where id = $1", [org])).rejects.toThrow(/permission denied/);
+
+    // Chuyển quyền chủ: chỉ chủ làm được; chủ cũ thành quản lý.
+    await expect(as("ql", "select public.transfer_owner($1, $2)", [org, users.ql])).rejects.toThrow(/Chỉ chủ/);
+    await as("chu", "select public.transfer_owner($1, $2)", [org, users.ql]);
+    const roles = await as<{ user_id: string; role: string }>("ql", "select user_id, role from public.members");
+    expect(roles.find((r) => r.user_id === users.ql)!.role).toBe("owner");
+    expect(roles.find((r) => r.user_id === users.chu)!.role).toBe("manager");
+  });
+
+  it("gỡ thành viên thì máy của họ biến khỏi danh sách", async () => {
+    const { as, users } = await setup();
+    const [{ id: org }] = await as<{ id: string }>("chu", "select public.create_org('NSG', '') as id");
+    const [{ code }] = await as<{ code: string }>("chu", "select public.create_invite($1, 'sales') as code", [org]);
+    await as("nv", "select * from public.join_org($1, '')", [code]);
+    await as("nv", "insert into public.devices (id, org_id, user_id) values ($1, $2, $3)", [crypto.randomUUID(), org, users.nv]);
+    expect(await as("chu", "select 1 from public.devices")).toHaveLength(1);
+    await as("chu", "delete from public.members where user_id = $1", [users.nv]);
+    expect(await as("chu", "select 1 from public.devices")).toHaveLength(0);
+  });
+
   it("máy chạy app: mỗi người chỉ ghi máy của mình; mã mời hết hạn / thu hồi thì không vào được", async () => {
     const { as, db, users } = await setup();
     const [{ id: org }] = await as<{ id: string }>("chu", "select public.create_org('NSG', '') as id");

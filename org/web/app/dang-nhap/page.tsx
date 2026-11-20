@@ -35,7 +35,7 @@ export default function LoginPage() {
     <div className="auth">
       <div className="card">
         <h1>Trợ lý CDN · Quản lý</h1>
-        <p className="muted small">Trang của chủ công ty và trưởng phòng: thành viên, máy đang chạy app, kiến thức dùng chung, số liệu phòng kinh doanh.</p>
+        <p className="muted small">Trang của chủ công ty và quản lý: mời nhân viên, phân vai, xem máy và nick Zalo đang chạy app. Đăng nhập bằng mã gửi qua email, không cần mật khẩu.</p>
         {!sent ? (
           <form className="stack" onSubmit={send}>
             <label className="field">

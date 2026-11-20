@@ -87,6 +87,18 @@ function Overview() {
           </div>
         )}
       </div>
+      {members.some((m) => !devices.some((d) => d.user_id === m.user_id)) && (
+        <div className="notice">
+          Chưa nối app trên máy:{" "}
+          <b>
+            {members
+              .filter((m) => !devices.some((d) => d.user_id === m.user_id))
+              .map((m) => m.display_name || m.email)
+              .join(", ")}
+          </b>
+          . Họ mở app Trợ lý CDN → Cài đặt → Doanh nghiệp, dán mã kết nối.
+        </div>
+      )}
       <p className="muted small">Kiến thức dùng chung, số liệu phòng kinh doanh và giao khách sẽ có ở các đợt tiếp theo.</p>
     </div>
   );

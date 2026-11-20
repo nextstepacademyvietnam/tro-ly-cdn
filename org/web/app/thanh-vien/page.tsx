@@ -21,7 +21,7 @@ interface Invite {
 
 /** Thành viên: danh sách, đổi vai, gỡ người nghỉ; tạo mã kết nối cho nhân viên nhập vào app trên máy. */
 function Members() {
-  const { member, userId } = useOrg();
+  const { member, userId, reload } = useOrg();
   const org = member.org_id;
   const isManager = member.role === "owner" || member.role === "manager";
   const [list, setList] = useState<Member[]>([]);
@@ -67,6 +67,11 @@ function Members() {
       <div className="head">
         <h1>Thành viên</h1>
       </div>
+      {!isManager && (
+        <div className="notice">
+          Bạn là <b>{ROLE_LABEL[member.role]}</b>: xem được danh sách, không đổi được vai hay mời người. Cần mời đồng nghiệp thì nhờ quản lý tạo mã kết nối.
+        </div>
+      )}
       <div className="card">
         <div className="table-wrap">
           <table>
@@ -99,6 +104,18 @@ function Members() {
                   </td>
                   <td className="muted">{new Date(m.joined_at).toLocaleDateString("vi-VN")}</td>
                   <td>
+                    {member.role === "owner" && m.user_id !== userId && (
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() =>
+                          confirm(`Chuyển quyền chủ công ty cho ${m.display_name || m.email}? Bạn sẽ thành Quản lý và không tự lấy lại được.`) &&
+                          act(supabase().rpc("transfer_owner", { p_org: org, p_user: m.user_id }), "Đã chuyển quyền chủ công ty.").then(reload)
+                        }
+                      >
+                        Chuyển quyền chủ
+                      </button>
+                    )}{" "}
                     {canEdit(m) && (
                       <button
                         type="button"
@@ -183,8 +200,54 @@ function Members() {
           )}
         </div>
       )}
+      <Permissions />
       {msg && <div className="notice ok">{msg}</div>}
       {error && <div className="notice bad">{error}</div>}
+    </div>
+  );
+}
+
+const PERMS: [string, boolean, boolean, boolean][] = [
+  ["Xem thành viên và máy đang chạy app", true, true, true],
+  ["Nối app trên máy mình vào công ty", true, true, true],
+  ["Mời nhân viên kinh doanh (tạo mã kết nối)", true, true, false],
+  ["Gỡ nhân viên kinh doanh, thu hồi mã mời", true, true, false],
+  ["Mời quản lý, đổi vai Quản lý ↔ Nhân viên, gỡ quản lý", true, false, false],
+  ["Chuyển quyền chủ công ty", true, false, false],
+];
+
+/** Bảng vai trò: ai làm được gì, để chủ công ty chọn vai khi mời. */
+function Permissions() {
+  return (
+    <div className="card">
+      <h2>Vai trò và quyền</h2>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Việc</th>
+              <th>{ROLE_LABEL.owner}</th>
+              <th>{ROLE_LABEL.manager}</th>
+              <th>{ROLE_LABEL.sales}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PERMS.map(([label, ...can]) => (
+              <tr key={label}>
+                <td>{label}</td>
+                {can.map((c, i) => (
+                  <td key={i} className={c ? "yes" : "muted"}>
+                    {c ? "✓" : "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">
+        Công ty chỉ có một chủ. Tin nhắn của khách không lên trang này: nó chỉ nằm trên máy của người đang chat với khách.
+      </p>
     </div>
   );
 }
