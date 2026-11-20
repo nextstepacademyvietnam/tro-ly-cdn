@@ -9,6 +9,8 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 
 ## [Chưa phát hành]
 
+## [0.3.0] - 2026-11-20
+
 ### Mới
 - **Giao diện gọn lại**: menu còn Hôm nay · Hộp thư · Lịch gửi · Nhóm Zalo · Tính cách · Cài đặt. Mở app là vào **Hôm nay**: danh sách việc cần bạn (khách cần người thật, nháp chờ duyệt, khách chờ lâu), khách tới lượt chăm sóc và lịch gửi còn lại trong ngày, bấm là mở đúng hội thoại. **Hộp thư** có ba tab Cần xử lý / Chăm sóc / Tất cả (Chăm sóc trước là mục riêng). Cột thông tin bên phải xếp theo việc hay dùng khi đang chat: nhãn trợ lý, gọi là, chăm sóc, CRM, lịch gửi; chi tiết hội thoại thu gọn. **Cài đặt** gom một trang năm tab: Kết nối Zalo, Giới hạn & an toàn, Báo cáo & admin, Mô hình AI, Doanh nghiệp. Từ gọi trợ lý trong nhóm chuyển sang trang **Nhóm Zalo**. Form lên lịch chia ba bước (Gửi tới ai, Nội dung, Khi nào), tên lịch, @All và mức độ nằm trong "Tuỳ chọn thêm". Đường dẫn cũ (`?trang=accounts`, `?trang=chamsoc`…) vẫn mở đúng chỗ mới.
 - **Giới hạn tin trợ lý tự gửi: tự chỉnh theo từng nick**: Cài đặt → Giới hạn & an toàn có thẻ "Giới hạn tin trợ lý tự gửi". Mặc định chat riêng 6 tin/giờ, 15 tin/ngày mỗi khách; nhóm 6 tin/giờ mỗi người hỏi, cả nhóm 20 tin/giờ và 60 tin/ngày, tự trả lời (không ai gọi) 4 tin/giờ. Chỉnh từng ô, bấm "Về mặc định" để quay lại. Trước đây nhóm cũng chỉ được 6 tin/giờ như chat riêng nên nhóm đông người hỏi là trợ lý dừng.
