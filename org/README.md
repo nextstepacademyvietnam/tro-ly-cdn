@@ -57,7 +57,9 @@ Các đợt tiếp: 2 kiến thức dùng chung · 3 bảng số liệu cả ph�
 1. New Project → chọn repo GitHub `tro-ly-cdn` → **Root Directory: `org/web`** (Framework: Next.js).
 2. Environment Variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (giá trị ở bước 1.6).
 3. Deploy. Muốn tên miền riêng (VD `team.congty.vn`): Settings → Domains.
-4. Supabase **Authentication → URL Configuration**: thêm địa chỉ trang quản lý vào Site URL / Redirect URLs.
+4. Supabase **Authentication → URL Configuration**: thêm địa chỉ trang quản lý vào **Redirect URLs** (VD `https://ten-trang.vercel.app/**`). Đăng nhập dùng mã số gửi qua email nên không cần đổi Site URL; project Supabase dùng chung với web khác thì giữ nguyên Site URL của web đó.
+
+Cách khác, không cần nối GitHub: trong `org/web` chạy `npx vercel login`, `npx vercel link`, khai hai biến bằng `npx vercel env add <TÊN> --environment production --value <giá trị> --no-sensitive`, rồi `npx vercel deploy --prod`. File `org/web/vercel.json` báo Vercel đây là Next.js (thiếu nó thì deploy lỗi "No Output Directory named public").
 
 ### 3. Dùng
 1. Chủ công ty mở trang quản lý → đăng nhập bằng email → **Tạo công ty**.
