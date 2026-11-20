@@ -10,6 +10,7 @@ phải làm, hoặc thay đổi cần biết trước) thì thanh báo cập nh�
 ## [Chưa phát hành]
 
 ### Mới
+- **Nhóm Zalo: giới hạn tự gửi tính theo từng người**: trước đây nhóm cũng chỉ được 6 tin trợ lý/giờ như chat riêng, nhóm đông người hỏi là trợ lý dừng (giữ nháp). Giờ trong nhóm tính 6 tin/giờ cho mỗi người hỏi, cả nhóm tối đa 20 tin/giờ và 60 tin/ngày.
 - **Nhóm Zalo: gọi trợ lý không cần tag**: gõ "admin ơi", "ad ơi", "trợ lý ơi", "bot ơi", "BTC ơi" (có dấu hay không dấu) trong nhóm cũng tính là gọi trợ lý; sửa danh sách từ gọi ở khung thông tin nhóm trong Hộp thư. Người vừa được trợ lý trả lời hỏi tiếp trong 10 phút thì không cần gọi lại. Tin đang tag hoặc trả lời người khác thì trợ lý không chen vào.
 - **Nhóm Zalo: trợ lý tự trả lời câu hỏi**: trong Hộp thư, mở một nhóm → khung thông tin → tích "Tự trả lời câu hỏi trong nhóm". Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được (tối đa 4 tin/giờ mỗi nhóm); chuyện trò, câu hỏi dành cho người khác, chuyện tiền thì im lặng. Nhóm không bật thì vẫn chỉ trả lời khi được tag hoặc được trả lời vào tin. Bạn nhắn tay trong nhóm giờ chỉ làm trợ lý nhường 5 phút (trước là 30 phút); chat riêng vẫn 30 phút.
 - **Lịch gửi do AI soạn**: ở mục Nội dung của lịch chọn "AI viết mới mỗi lượt", nhập chủ đề (VD mỗi sáng một mẹo bán hàng cho nhóm). Đến giờ AI viết một tin mới theo tính cách và tài liệu đã chọn, không lặp các tin đã gửi. Chế độ "chờ duyệt" đưa tin vào Cần xử lý của từng hội thoại, duyệt rồi mới gửi (giữ @All và mức độ); chế độ "tự gửi" gửi luôn. Lịch sử lượt gửi hiện nguyên văn tin AI đã viết.

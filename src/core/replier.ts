@@ -34,6 +34,13 @@ const HISTORY = 30;
 /** Trần tự gửi cho một hội thoại: quá ngần này tin trợ lý tự gửi trong 1 giờ / 24 giờ thì chuyển sang soạn nháp. */
 export const AUTO_CAP_HOUR = 6;
 export const AUTO_CAP_DAY = 15;
+/**
+ * Nhóm: nhiều người hỏi nên trần tính theo TỪNG NGƯỜI (chặn hai bot nhắn qua lại, hay một người nhắn dồn),
+ * cộng trần chung cả nhóm cao hơn để nick không bị Zalo hạn chế.
+ */
+export const GROUP_CAP_PER_SENDER_HOUR = 6;
+export const GROUP_CAP_HOUR = 20;
+export const GROUP_CAP_DAY = 60;
 
 /**
  * AI trả lời khách. Mỗi lượt tin của khách đi qua: gom tin → luật hệ thống (replyPolicy.decide)
@@ -75,6 +82,8 @@ export class Replier {
   callWords: ((accountId: number) => string[]) | null = null;
   /** Lần cuối trợ lý trả lời từng người trong nhóm (`tài khoản:nhóm:người` → ms). Mất khi khởi động lại là chấp nhận được. */
   private answered = new Map<string, number>();
+  /** Các lần trợ lý tự gửi trả lời từng người trong nhóm (`tài khoản:nhóm:người` → mốc ms), để tính trần theo người. */
+  private groupSends = new Map<string, number[]>();
   /** Báo chủ ngoài app (VD Zalo "Cloud của tôi") khi có việc gấp. */
   alertOwner: ((accountId: number, text: string, threadId: string) => void) | null = null;
 
@@ -248,6 +257,18 @@ export class Replier {
     return "";
   }
 
+  /** Trần tự gửi trong nhóm: theo từng người hỏi, và chung cả nhóm. Trả lý do, hoặc "". */
+  private groupCapReason(acc: ReplierAccount, event: InboundEvent): string {
+    const now = this.now();
+    const mine = (this.groupSends.get(`${acc.accountId}:${event.threadId}:${event.senderId}`) ?? []).filter((t) => now - t < 3_600_000).length;
+    if (mine >= GROUP_CAP_PER_SENDER_HOUR) return `trợ lý đã trả lời ${event.displayName || "người này"} ${mine} tin trong 1 giờ`;
+    const hour = acc.inbox.aiSentSince(event.threadId, now - 3_600_000);
+    if (hour >= GROUP_CAP_HOUR) return `trợ lý đã tự gửi ${hour} tin vào nhóm trong 1 giờ`;
+    const day = acc.inbox.aiSentSince(event.threadId, now - 24 * 3_600_000);
+    if (day >= GROUP_CAP_DAY) return `trợ lý đã tự gửi ${day} tin vào nhóm trong 24 giờ`;
+    return "";
+  }
+
   private history(acc: ReplierAccount, threadId: string, isGroup: boolean): ChatMessage[] {
     const out: ChatMessage[] = [];
     for (const m of acc.inbox.messages(threadId, HISTORY)) {
@@ -362,7 +383,7 @@ export class Replier {
       this.store.notify(acc.accountId, "error", `Zalo mất kết nối nên câu trả lời cho ${who} được giữ ở dạng nháp.`, event.threadId);
       return;
     }
-    const cap = this.autoCapReason(acc, event.threadId);
+    const cap = isGroup ? this.groupCapReason(acc, event) : this.autoCapReason(acc, event.threadId);
     if (cap) {
       // Chặn hai bot nói chuyện với nhau mãi / nick bị Zalo hạn chế: giữ nháp, báo chủ một lần cho mỗi đợt.
       const already = this.store.pending(acc.accountId, event.threadId).length > 0;
@@ -380,6 +401,11 @@ export class Replier {
     try {
       const ids = await acc.sendText(event.threadId, event.threadType, text);
       acc.inbox.recordOutbound(event.threadId, event.threadType, text, "ai", ids[0] ?? null, this.now());
+      if (isGroup) {
+        const key = `${acc.accountId}:${event.threadId}:${event.senderId}`;
+        this.groupSends.set(key, [...(this.groupSends.get(key) ?? []).filter((t) => this.now() - t < 3_600_000), this.now()]);
+        if (this.groupSends.size > 5_000) this.groupSends.delete(this.groupSends.keys().next().value!);
+      }
     } catch (err) {
       this.store.addDraft(acc.accountId, event.threadId, profile.id, text, parsed.handoff, this.now());
       this.store.notify(acc.accountId, "error", `Gửi trả lời cho ${who} lỗi (${(err as Error).message}); câu trả lời được giữ ở dạng nháp.`, event.threadId);
