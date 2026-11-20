@@ -117,6 +117,46 @@ describe("lưu lịch", () => {
   });
 });
 
+describe("tag tất cả và mức độ tin", () => {
+  it("lưu, sửa, nhân bản giữ nguyên; mức độ sai thì báo lỗi; lịch cũ mặc định thường, không tag", async () => {
+    const { store, runner } = setup();
+    const now = T("2026-11-10", "10:00");
+    const rec: Recurrence = { type: "once", date: "2026-11-10", time: "20:00" };
+    expect(() => store.create({ text: "x", imageIds: [], targets, recurrence: rec, urgency: 5 as never }, now)).toThrow(/Mức độ/);
+    const plain = store.create({ text: "x", imageIds: [], targets, recurrence: rec }, now);
+    expect(plain).toMatchObject({ mentionAll: false, urgency: 0 });
+    const s = store.create({ text: "Họp gấp 20h", imageIds: [], targets, recurrence: rec, mentionAll: true, urgency: 2 }, now);
+    expect(s).toMatchObject({ mentionAll: true, urgency: 2 });
+    expect(store.update(s.id, { text: "Họp 20h", imageIds: [], targets, recurrence: rec, mentionAll: true, urgency: 1 }, now)).toMatchObject({ urgency: 1, mentionAll: true });
+    expect(store.duplicate(s.id, now)).toMatchObject({ urgency: 1, mentionAll: true });
+    void runner;
+  });
+
+  it("bộ chạy chuyển cách gửi xuống nơi gửi, cả khi gửi lại", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cdn-sched-"));
+    const store = new ScheduleStore(openDb(":memory:"), dir);
+    const got: unknown[] = [];
+    let fail = true;
+    const runner = new ScheduleRunner(store, {
+      isConnected: () => true,
+      send: async (_a, t, _text, _img, opts) => {
+        got.push({ thread: t.threadId, ...opts });
+        if (fail && t.threadId === "u1") throw new Error("lỗi");
+      },
+    });
+    const s = store.create({ text: "Khẩn", imageIds: [], targets, recurrence: { type: "once", date: "2026-11-10", time: "20:00" }, mentionAll: true, urgency: 2 }, T("2026-11-10", "10:00"));
+    await runner.tick(T("2026-11-10", "20:00"));
+    expect(got).toEqual([
+      { thread: "g1", mentionAll: true, urgency: 2 },
+      { thread: "u1", mentionAll: true, urgency: 2 },
+    ]);
+    fail = false;
+    const failed = store.runs(s.id).find((r) => r.status === "failed")!;
+    await runner.retry(failed.id);
+    expect(got.at(-1)).toEqual({ thread: "u1", mentionAll: true, urgency: 2 });
+  });
+});
+
 describe("bộ chạy lịch", () => {
   it("đến giờ thì gửi mọi hội thoại, lịch một lần chuyển Hoàn tất", async () => {
     const { store, runner, sent } = setup();

@@ -21,10 +21,18 @@ export interface ScheduleInput {
   imageIds: number[];
   targets: ScheduleTarget[];
   recurrence: Recurrence;
+  /** Tag tất cả mọi người (@All) — chỉ có tác dụng khi gửi vào nhóm. */
+  mentionAll?: boolean;
+  /** Mức độ tin: 0 thường, 1 quan trọng, 2 khẩn cấp. */
+  urgency?: Urgency;
 }
 
-export interface Schedule extends Omit<ScheduleInput, "title" | "accountId"> {
+export type Urgency = 0 | 1 | 2;
+
+export interface Schedule extends Omit<ScheduleInput, "title" | "accountId" | "mentionAll" | "urgency"> {
   id: number;
+  mentionAll: boolean;
+  urgency: Urgency;
   accountId: number;
   title: string;
   status: ScheduleStatus;
@@ -67,6 +75,8 @@ interface ScheduleRow {
   recurrence: string;
   status: ScheduleStatus;
   next_run_at: number | null;
+  mention_all: number;
+  urgency: number;
   created_at: number;
   updated_at: number;
 }
@@ -112,6 +122,7 @@ export class ScheduleStore {
     if (imageIds.length > MAX_IMAGES) throw new ScheduleError(`Tối đa ${MAX_IMAGES} ảnh`);
     for (const id of imageIds) if (!this.media(id)) throw new ScheduleError("Có ảnh không còn tồn tại, hãy tải lại");
     if (!input.targets?.length) throw new ScheduleError("Chọn ít nhất một hội thoại để gửi");
+    if (input.urgency !== undefined && ![0, 1, 2].includes(Number(input.urgency))) throw new ScheduleError("Mức độ tin không hợp lệ");
     try {
       validateRecurrence(input.recurrence);
     } catch (err) {
@@ -129,10 +140,10 @@ export class ScheduleStore {
     try {
       const r = this.db
         .prepare(
-          `INSERT INTO schedules (account_id, title, text, image_ids, recurrence, status, next_run_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+          `INSERT INTO schedules (account_id, title, text, image_ids, recurrence, status, next_run_at, mention_all, urgency, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
         )
-        .run(input.accountId ?? 1, (input.title ?? "").trim().slice(0, 120), input.text.trim(), JSON.stringify(input.imageIds), JSON.stringify(input.recurrence), next, now, now);
+        .run(input.accountId ?? 1, (input.title ?? "").trim().slice(0, 120), input.text.trim(), JSON.stringify(input.imageIds), JSON.stringify(input.recurrence), next, input.mentionAll ? 1 : 0, Number(input.urgency ?? 0), now, now);
       const id = Number(r.lastInsertRowid);
       this.writeTargets(id, input.targets);
       this.db.exec("COMMIT");
@@ -153,8 +164,19 @@ export class ScheduleStore {
     this.db.exec("BEGIN");
     try {
       this.db
-        .prepare("UPDATE schedules SET title = ?, text = ?, image_ids = ?, recurrence = ?, status = ?, next_run_at = ?, updated_at = ? WHERE id = ?")
-        .run((input.title ?? "").trim().slice(0, 120), input.text.trim(), JSON.stringify(input.imageIds), JSON.stringify(input.recurrence), status, next, now, id);
+        .prepare("UPDATE schedules SET title = ?, text = ?, image_ids = ?, recurrence = ?, status = ?, next_run_at = ?, mention_all = ?, urgency = ?, updated_at = ? WHERE id = ?")
+        .run(
+          (input.title ?? "").trim().slice(0, 120),
+          input.text.trim(),
+          JSON.stringify(input.imageIds),
+          JSON.stringify(input.recurrence),
+          status,
+          next,
+          input.mentionAll ? 1 : 0,
+          Number(input.urgency ?? 0),
+          now,
+          id,
+        );
       this.db.prepare("DELETE FROM schedule_targets WHERE schedule_id = ?").run(id);
       this.writeTargets(id, input.targets);
       this.db.exec("COMMIT");
@@ -200,7 +222,7 @@ export class ScheduleStore {
       rec.date = new Date(now + 7 * 3_600_000 + 86_400_000).toISOString().slice(0, 10);
       if (rec.endDate && rec.endDate < rec.date) delete rec.endDate;
     }
-    return this.create({ accountId: s.accountId, title: s.title ? `${s.title} (bản sao)` : "", text: s.text, imageIds: s.imageIds, targets: s.targets, recurrence: rec }, now);
+    return this.create({ accountId: s.accountId, title: s.title ? `${s.title} (bản sao)` : "", text: s.text, imageIds: s.imageIds, targets: s.targets, recurrence: rec, mentionAll: s.mentionAll, urgency: s.urgency }, now);
   }
 
   get(id: number): Schedule | undefined {
@@ -267,6 +289,8 @@ export class ScheduleStore {
       recurrence: JSON.parse(row.recurrence) as Recurrence,
       status: row.status,
       nextRunAt: row.next_run_at,
+      mentionAll: Boolean(row.mention_all),
+      urgency: (Number(row.urgency) || 0) as Urgency,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       targets,

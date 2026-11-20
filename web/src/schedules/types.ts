@@ -1,6 +1,8 @@
 export type RecurrenceType = "once" | "daily" | "weekly" | "monthly";
 export type ScheduleStatus = "active" | "paused" | "cancelled" | "done";
 export type RunStatus = "sent" | "failed" | "missed";
+export type Urgency = 0 | 1 | 2;
+export const URGENCY_LABEL: Record<Urgency, string> = { 0: "Thường", 1: "Quan trọng", 2: "Khẩn cấp" };
 
 export interface Recurrence {
   type: RecurrenceType;
@@ -36,6 +38,10 @@ export interface Schedule {
   images: { id: number; url: string }[];
   targets: Target[];
   recurrence: Recurrence;
+  /** Tag tất cả (@All) khi gửi vào nhóm. */
+  mentionAll: boolean;
+  /** 0 thường, 1 quan trọng, 2 khẩn cấp. */
+  urgency: Urgency;
   status: ScheduleStatus;
   nextRunAt: number | null;
   summary: string;

@@ -152,6 +152,8 @@ details summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
 .run-tag.sent { background: var(--success-bg); color: var(--success); }
 .run-tag.failed { background: var(--error-bg); color: var(--error-strong); }
 .run-tag.missed { background: var(--warning-bg); color: var(--warning); }
+.run-tag.mention { background: var(--primary-light); color: var(--primary-ink); }
+.sched .small.muted .run-tag { margin-left: 6px; margin-right: 0; }
 .runs { list-style: none; margin: 4px 0 0; padding: 6px 0 0; border-top: 1px solid var(--border-strong); display: grid; gap: 6px; }
 .schedule-form { width: min(680px, 100%); }
 .form-scroll { overflow-y: auto; padding-right: 4px; }

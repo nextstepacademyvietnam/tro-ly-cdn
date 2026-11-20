@@ -459,6 +459,9 @@ const MIGRATIONS: string[] = [
      SELECT id, 'Tóm tắt cuối ngày', '["messages","ai_sent","pending","waiting","handoff","care"]',
             CAST(strftime('%s', 'now') AS INTEGER) * 1000, digest_day
      FROM accounts WHERE owner_alerts = 1;`,
+  // v19: lịch gửi — tag tất cả (@All, chỉ nhóm) và mức độ tin (0 thường, 1 quan trọng, 2 khẩn cấp).
+  `ALTER TABLE schedules ADD COLUMN mention_all INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE schedules ADD COLUMN urgency INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

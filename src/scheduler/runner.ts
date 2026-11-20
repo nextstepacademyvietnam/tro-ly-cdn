@@ -1,9 +1,15 @@
-import type { Schedule, ScheduleStore, ScheduleTarget } from "./store.js";
+import type { Schedule, ScheduleStore, ScheduleTarget, Urgency } from "./store.js";
+
+/** Cách gửi của lịch: tag tất cả (chỉ nhóm), mức độ tin. */
+export interface SendOptions {
+  mentionAll: boolean;
+  urgency: Urgency;
+}
 
 /** Nơi thực sự gửi tin (Zalo). Tách ra để test được bộ chạy lịch. */
 export interface ScheduleSender {
   isConnected(accountId: number): boolean;
-  send(accountId: number, target: ScheduleTarget, text: string, imagePaths: string[]): Promise<void>;
+  send(accountId: number, target: ScheduleTarget, text: string, imagePaths: string[], opts?: SendOptions): Promise<void>;
 }
 
 export const GRACE_MS = 30 * 60_000;
@@ -77,7 +83,7 @@ export class ScheduleRunner {
     const target = s.targets.find((t) => t.threadId === run.threadId) ?? { threadId: run.threadId, threadType: "user" as const, name: "" };
     if (!this.sender.isConnected(s.accountId)) throw new Error("Zalo chưa kết nối");
     try {
-      await this.sender.send(s.accountId, target, s.text, this.imagePaths(s));
+      await this.sender.send(s.accountId, target, s.text, this.imagePaths(s), { mentionAll: s.mentionAll, urgency: s.urgency });
       this.store.updateRun(runId, "sent", "");
     } catch (err) {
       this.store.updateRun(runId, "failed", (err as Error).message);
@@ -96,7 +102,7 @@ export class ScheduleRunner {
     const images = this.imagePaths(s);
     for (const t of s.targets) {
       try {
-        await this.sender.send(s.accountId, t, s.text, images);
+        await this.sender.send(s.accountId, t, s.text, images, { mentionAll: s.mentionAll, urgency: s.urgency });
         this.store.addRun({ scheduleId: s.id, threadId: t.threadId, plannedAt: planned, status: "sent", error: "", doneAt: Date.now(), manual });
       } catch (err) {
         this.store.addRun({ scheduleId: s.id, threadId: t.threadId, plannedAt: planned, status: "failed", error: (err as Error).message, doneAt: Date.now(), manual });

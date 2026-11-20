@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadImage } from "../api";
-import { type Recurrence, type RecurrenceType, type Schedule, type Target, vnToday } from "./types";
+import { type Recurrence, type RecurrenceType, type Schedule, type Target, URGENCY_LABEL, type Urgency, vnToday } from "./types";
 
 const WEEKDAYS: { v: number; label: string }[] = [
   { v: 1, label: "T2" },
@@ -50,6 +50,9 @@ export function ScheduleForm({
     ...initial?.recurrence,
   });
   const [hasEnd, setHasEnd] = useState(Boolean(initial?.recurrence.endDate));
+  const [mentionAll, setMentionAll] = useState(initial?.mentionAll ?? false);
+  const [urgency, setUrgency] = useState<Urgency>(initial?.urgency ?? 0);
+  const groupCount = targets.filter((t) => t.threadType === "group").length;
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [search, setSearch] = useState("");
   const [brief, setBrief] = useState("");
@@ -163,7 +166,7 @@ export function ScheduleForm({
       ...(rec.type === "monthly" ? { monthDay: Number(rec.monthDay) } : {}),
       ...(rec.type !== "once" && hasEnd && rec.endDate ? { endDate: rec.endDate } : {}),
     };
-    const body = { title, text, imageIds: images.map((i) => i.id), targets, recurrence };
+    const body = { title, text, imageIds: images.map((i) => i.id), targets, recurrence, mentionAll: mentionAll && groupCount > 0, urgency };
     try {
       if (initial) await api(`/api/schedules/${initial.id}`, { method: "PUT", body });
       else await api("/api/schedules", { body });
@@ -286,6 +289,34 @@ export function ScheduleForm({
                 e.target.value = "";
               }}
             />
+          </div>
+
+          <div className="stack-sm">
+            <span className="field-label">Cách gửi</span>
+            <label className="inline check">
+              <input type="checkbox" checked={mentionAll && groupCount > 0} disabled={groupCount === 0} onChange={(e) => setMentionAll(e.target.checked)} /> Tag tất cả
+              mọi người trong nhóm <span className="muted small">(thêm @All ở đầu tin, cả nhóm nhận thông báo)</span>
+            </label>
+            {groupCount === 0 ? (
+              <span className="muted small">Chỉ dùng được khi gửi vào nhóm Zalo.</span>
+            ) : (
+              groupCount < targets.length && mentionAll && <span className="muted small">Người nhận chat riêng vẫn nhận tin bình thường, không có @All.</span>
+            )}
+            <div className="row">
+              <span className="small">Mức độ tin</span>
+              <div className="seg">
+                {([0, 1, 2] as Urgency[]).map((u) => (
+                  <button key={u} type="button" className={urgency === u ? "active" : ""} onClick={() => setUrgency(u)}>
+                    {URGENCY_LABEL[u]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {urgency > 0 && (
+              <span className="muted small">
+                Zalo gắn nhãn <b>{URGENCY_LABEL[urgency]}</b> lên tin để người nhận chú ý. Chỉ dùng cho tin thật sự cần, dùng nhiều người nhận sẽ quen và bỏ qua.
+              </span>
+            )}
           </div>
 
           <div className="stack-sm">

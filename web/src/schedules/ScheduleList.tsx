@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { ScheduleForm } from "./ScheduleForm";
-import { RUN_LABEL, STATUS_LABEL, type Schedule, type ScheduleRun, fmtDateTime } from "./types";
+import { RUN_LABEL, STATUS_LABEL, type Schedule, type ScheduleRun, fmtDateTime, URGENCY_LABEL } from "./types";
 
 /** Danh sách lịch, mỗi lịch có trạng thái, lượt kế tiếp, kết quả gửi và các nút thao tác. */
 export function ScheduleList({
@@ -58,7 +58,11 @@ export function ScheduleList({
                 {s.nextRunAt && s.status === "paused" && <span className="small muted">Lượt kế: {fmtDateTime(s.nextRunAt)}</span>}
               </div>
               {s.title && <strong>{s.title}</strong>}
-              <div className="small muted">{s.summary}</div>
+              <div className="small muted">
+                {s.summary}
+                {s.mentionAll && <span className="run-tag mention">@All</span>}
+                {s.urgency > 0 && <span className={`run-tag ${s.urgency === 2 ? "failed" : "missed"}`}>{URGENCY_LABEL[s.urgency]}</span>}
+              </div>
               <div className="sched-text">
                 {s.images.length > 0 && <span className="muted">🖼 {s.images.length} ảnh · </span>}
                 {s.text || <em className="muted">(chỉ có ảnh)</em>}

@@ -1,6 +1,7 @@
 import type { DB } from "../../server/db.js";
 import type { Settings } from "../../server/settings.js";
 import type { ScheduleTarget } from "../../scheduler/store.js";
+import type { SendOptions } from "../../scheduler/runner.js";
 import type { Replier, ReplierAccount } from "../../core/replier.js";
 import { ZaloService } from "./service.js";
 import type { GroupChange } from "./groupEvents.js";
@@ -183,7 +184,7 @@ export class AccountManager {
     return this.services.get(accountId)?.isConnected() ?? false;
   }
 
-  send(accountId: number, target: ScheduleTarget, text: string, imagePaths: string[]): Promise<void> {
-    return this.get(accountId).send(target, text, imagePaths);
+  send(accountId: number, target: ScheduleTarget, text: string, imagePaths: string[], opts?: SendOptions): Promise<void> {
+    return this.get(accountId).send(target, text, imagePaths, opts);
   }
 }

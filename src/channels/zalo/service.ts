@@ -1,7 +1,8 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { DB } from "../../server/db.js";
 import type { Settings } from "../../server/settings.js";
-import { ZaloChannel } from "./channel.js";
+import { MENTION_ALL_TEXT, ZaloChannel } from "./channel.js";
+import type { SendOptions } from "../../scheduler/runner.js";
 import { Inbox } from "./inbox.js";
 import { ContactStore } from "../../core/contacts.js";
 import { hasScheduleVars, renderScheduleText } from "../../scheduler/render.js";
@@ -88,18 +89,21 @@ export class ZaloService {
   }
 
   /** Gửi tin lịch hẹn: ảnh trước, chữ sau; ghi vào hộp thư với nhãn "Lịch hẹn". */
-  async send(target: { threadId: string; threadType: ThreadType; name: string }, rawText: string, imagePaths: string[]): Promise<void> {
+  async send(target: { threadId: string; threadType: ThreadType; name: string }, rawText: string, imagePaths: string[], opts?: SendOptions): Promise<void> {
+    const urgency = opts?.urgency ?? 0;
+    // Tag tất cả chỉ có ở nhóm; lịch chỉ có ảnh thì vẫn gửi một dòng "@All" để mọi người được báo.
+    const mentionAll = Boolean(opts?.mentionAll) && target.threadType === "group";
     const text = await this.personalize(target, rawText);
     // Ảnh lỗi không được chặn phần chữ; lượt gửi vẫn báo lỗi để chủ biết ảnh chưa tới.
     let imageIds: string[] = [];
     let imageError: Error | null = null;
     try {
-      imageIds = await this.channel.sendImages(target.threadId, target.threadType, imagePaths);
+      imageIds = await this.channel.sendImages(target.threadId, target.threadType, imagePaths, { urgency });
     } catch (err) {
       imageError = err as Error;
     }
-    const textIds = text.trim() ? await this.channel.sendText(target.threadId, target.threadType, text) : [];
-    const label = imagePaths.length && !imageError ? `[${imagePaths.length} ảnh] ` : "";
+    const textIds = text.trim() || mentionAll ? await this.channel.sendText(target.threadId, target.threadType, text, { urgency, mentionAll }) : [];
+    const label = (imagePaths.length && !imageError ? `[${imagePaths.length} ảnh] ` : "") + (mentionAll ? `${MENTION_ALL_TEXT} ` : "");
     this.inbox.recordOutbound(
       target.threadId,
       target.threadType,

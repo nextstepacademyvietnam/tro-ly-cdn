@@ -25,6 +25,8 @@ import { type LabelData, applyLabelChange, hasLabel, labelSummaries } from "./la
 const LABELS_TTL_MS = 60_000;
 const TYPING_QUIET_MS = 4_000;
 const SEND_TIMEOUT_MS = 20_000;
+/** Chữ hiện trong tin khi tag tất cả thành viên nhóm. */
+export const MENTION_ALL_TEXT = "@All";
 const MAX_QR_RETRIES = 3;
 
 export type ZaloState = "logged_out" | "waiting_qr" | "scanned" | "connecting" | "connected" | "reconnecting" | "error";
@@ -455,11 +457,27 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
    * Gửi tin chữ. Chờ người kia ngừng gõ, hiện "đang soạn tin", giữ nhịp an toàn.
    * Trả về id các tin đã gửi (tin dài được chia nhỏ).
    */
-  async sendText(threadId: string, threadType: ThreadType, text: string, opts: { proactive?: boolean } = {}): Promise<string[]> {
+  async sendText(
+    threadId: string,
+    threadType: ThreadType,
+    text: string,
+    opts: { proactive?: boolean; urgency?: 0 | 1 | 2; mentionAll?: boolean } = {},
+  ): Promise<string[]> {
     const api = this.requireApi();
     const zType = threadType === "group" ? ZThreadType.Group : ZThreadType.User;
     const ids: string[] = [];
-    for (const part of splitLongText(text)) {
+    const parts = splitLongText(text);
+    if (parts.length === 0) parts.push("");
+    for (const [i, raw] of parts.entries()) {
+      // Tag tất cả: "@All" ở đầu tin đầu tiên, Zalo báo cho mọi thành viên nhóm.
+      const tagAll = i === 0 && opts.mentionAll && threadType === "group";
+      const part = tagAll ? `${MENTION_ALL_TEXT} ${raw}`.trimEnd() : raw;
+      if (!part.trim()) continue;
+      const content = {
+        msg: part,
+        ...(tagAll ? { mentions: [{ pos: 0, uid: "-1", len: MENTION_ALL_TEXT.length }] } : {}),
+        ...(opts.urgency ? { urgency: opts.urgency } : {}),
+      };
       const decision = this.pacer.reserve(Date.now(), opts.proactive);
       if (!decision.ok) throw new Error(decision.reason);
       await sleep(decision.waitMs);
@@ -468,7 +486,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       }
       await api.sendTypingEvent(threadId, zType).catch(() => undefined);
       await sleep(typingDelayMs(part));
-      const res = (await this.tracked(threadId, part, () => withTimeout(api.sendMessage({ msg: part }, threadId, zType), SEND_TIMEOUT_MS, "Gửi tin"))) as {
+      const res = (await this.tracked(threadId, part, () => withTimeout(api.sendMessage(content, threadId, zType), SEND_TIMEOUT_MS, "Gửi tin"))) as {
         message?: { msgId?: string | number } | null;
       };
       const id = String(res?.message?.msgId ?? "");
@@ -541,7 +559,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   /** Gửi một hoặc nhiều ảnh (không kèm chữ). Tin lịch hẹn đi qua đây rồi mới gửi chữ. */
-  async sendImages(threadId: string, threadType: ThreadType, imagePaths: string[]): Promise<string[]> {
+  async sendImages(threadId: string, threadType: ThreadType, imagePaths: string[], opts: { urgency?: 0 | 1 | 2 } = {}): Promise<string[]> {
     if (imagePaths.length === 0) return [];
     const api = this.requireApi();
     const zType = threadType === "group" ? ZThreadType.Group : ZThreadType.User;
@@ -549,7 +567,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     if (!decision.ok) throw new Error(decision.reason);
     await sleep(decision.waitMs);
     const res = (await this.tracked(threadId, null, () =>
-      withTimeout(api.sendMessage({ msg: "", attachments: imagePaths }, threadId, zType), SEND_TIMEOUT_MS * 3, "Gửi ảnh"),
+      withTimeout(api.sendMessage({ msg: "", attachments: imagePaths, ...(opts.urgency ? { urgency: opts.urgency } : {}) }, threadId, zType), SEND_TIMEOUT_MS * 3, "Gửi ảnh"),
     )) as { attachment?: { msgId?: string | number }[] };
     const ids = (res?.attachment ?? []).map((a) => String(a?.msgId ?? "")).filter(Boolean);
     for (const id of ids) this.sentIds.add(id);
