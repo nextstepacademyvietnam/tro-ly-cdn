@@ -5,6 +5,8 @@ import type { AssistantStore } from "../../core/assistantStore.js";
 import type { CareStore } from "../../care/store.js";
 import type { ScheduleStore } from "../../scheduler/store.js";
 import { WAIT_LOOKBACK_MS, WAIT_REPLY_MS } from "../../core/waiting.js";
+import { DEFAULT_CALL_WORDS } from "../../core/replyPolicy.js";
+import type { Settings } from "../settings.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -21,6 +23,8 @@ export function registerAccountRoutes(
   care?: CareStore,
   /** Người là admin (chat ra lệnh với bot): không tính là khách chờ trả lời. */
   isAdmin?: (accountId: number, userId: string) => boolean,
+  /** Cấu hình (từ gọi trợ lý trong nhóm). */
+  settings?: Settings,
 ) {
   const fail = (err: unknown, code = 409) => Object.assign(new Error((err as Error).message), { statusCode: code });
   const svc = (req: FastifyRequest) => {
@@ -237,6 +241,14 @@ export function registerAccountRoutes(
       throw fail(err);
     }
     return { ok: true };
+  });
+
+  // Từ gọi trợ lý trong nhóm (tính như tag), theo tài khoản.
+  app.get("/api/zalo/call-words", async (req) => ({ words: settings?.get<string[]>(`group.callWords.${req.accountId}`) ?? DEFAULT_CALL_WORDS }));
+  app.put<{ Body: { words?: string[] } }>("/api/zalo/call-words", async (req, reply) => {
+    const words = [...new Set((req.body?.words ?? []).map((w) => String(w).trim().slice(0, 40)).filter((w) => w.length >= 2))].slice(0, 20);
+    settings?.set(`group.callWords.${req.accountId}`, words);
+    return { words };
   });
 
   // Nhóm: bật / tắt trợ lý tự trả lời câu hỏi (không cần ai tag).

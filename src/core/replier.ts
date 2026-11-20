@@ -3,7 +3,7 @@ import { type InboundEvent, MessageBatcher, type ThreadType, isOwnerCommandChann
 import type { ChatMessage, Engine } from "../engines/index.js";
 import type { AssistantStore, Draft } from "./assistantStore.js";
 import { type Profile, type ProfileStore, resolveProfile } from "./profiles.js";
-import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply, GROUP_AUTO_PER_HOUR } from "./replyPolicy.js";
+import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply, GROUP_AUTO_PER_HOUR, DEFAULT_CALL_WORDS } from "./replyPolicy.js";
 
 /** Những gì bộ trả lời cần từ một tài khoản Zalo (tách ra để test không cần Zalo thật). */
 export interface ReplierAccount {
@@ -71,6 +71,10 @@ export class Replier {
   } | null = null;
   /** Mỗi tin khách vừa ghi vào hộp thư (VD bắt số điện thoại khách để lại để gợi ý lưu CRM). */
   onCustomerMessage: ((accountId: number, event: InboundEvent) => void) | null = null;
+  /** Từ gọi trợ lý trong nhóm của tài khoản (VD "admin ơi"); không gắn thì dùng mặc định. */
+  callWords: ((accountId: number) => string[]) | null = null;
+  /** Lần cuối trợ lý trả lời từng người trong nhóm (`tài khoản:nhóm:người` → ms). Mất khi khởi động lại là chấp nhận được. */
+  private answered = new Map<string, number>();
   /** Báo chủ ngoài app (VD Zalo "Cloud của tôi") khi có việc gấp. */
   alertOwner: ((accountId: number, text: string, threadId: string) => void) | null = null;
 
@@ -190,6 +194,8 @@ export class Replier {
       ownId: acc.ownId(),
       lastOwnerAt: acc.inbox.lastOwnerAt(event.threadId),
       now: this.now(),
+      callWords: this.callWords?.(accountId) ?? DEFAULT_CALL_WORDS,
+      lastAnsweredSenderAt: this.answered.get(`${accountId}:${event.threadId}:${event.senderId}`) ?? 0,
     });
     const who = conv.name || event.displayName || event.threadId;
 
@@ -339,6 +345,10 @@ export class Replier {
     if (ambient && parsed.handoff) return;
     // Trong nhóm, lời chuyển người thật không viết vào nhóm — chỉ báo chủ.
     const text = isGroup && parsed.handoff ? "" : parsed.text;
+    if (isGroup && text) {
+      this.answered.set(`${acc.accountId}:${event.threadId}:${event.senderId}`, this.now());
+      if (this.answered.size > 5_000) this.answered.delete(this.answered.keys().next().value!);
+    }
 
     if (parsed.handoff) this.handoff(acc, event, who, "AI thấy cần người thật");
     if (!text) return;

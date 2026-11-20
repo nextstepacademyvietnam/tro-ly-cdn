@@ -947,10 +947,62 @@ function GroupAuto({ threadId, on, hasBot, onChanged }: { threadId: string; on: 
       <p className="info-hint">
         {on
           ? "Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được (tối đa 4 tin/giờ). Chuyện trò, câu hỏi dành cho người khác hay chuyện tiền thì im lặng."
-          : "Đang tắt: trợ lý chỉ trả lời khi có người tag nick này hoặc trả lời vào tin của trợ lý."}{" "}
-        Bạn nhắn tay trong nhóm thì trợ lý nhường 5 phút.
+          : "Đang tắt: trợ lý trả lời khi có người tag nick này, trả lời vào tin của trợ lý, hoặc gọi bằng từ gọi bên dưới."}{" "}
+        Người vừa được trợ lý trả lời hỏi tiếp trong 10 phút thì không cần gọi lại. Bạn nhắn tay trong nhóm thì trợ lý nhường 5 phút.
       </p>
+      <CallWords />
       {on && !hasBot && <div className="notice warn small">Nhóm chưa gắn nhãn tính cách nên trợ lý chưa trả lời. Gắn nhãn ở ô trên.</div>}
+      {error && <div className="notice bad small">{error}</div>}
+    </div>
+  );
+}
+
+/** Từ gọi trợ lý trong nhóm (VD "admin ơi"), tính như tag; dùng chung cho mọi nhóm của nick đang mở. */
+function CallWords() {
+  const [words, setWords] = useState<string[] | null>(null);
+  const [edit, setEdit] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<{ words: string[] }>("/api/zalo/call-words")
+      .then((r) => setWords(r.words))
+      .catch(() => setWords([]));
+  }, []);
+  if (words === null) return null;
+  const save = async () => {
+    setError("");
+    try {
+      const list = (edit ?? "").split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
+      const r = await api<{ words: string[] }>("/api/zalo/call-words", { method: "PUT", body: { words: list } });
+      setWords(r.words);
+      setEdit(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  return (
+    <div className="call-words">
+      <span className="small">Từ gọi trợ lý (dùng cho mọi nhóm của nick này):</span>
+      {edit === null ? (
+        <div className="row">
+          <span className="small muted">{words.length ? words.join(", ") : "chưa có — chỉ tag mới gọi được"}</span>
+          <button type="button" className="link small" onClick={() => setEdit(words.join(", "))}>
+            Sửa
+          </button>
+        </div>
+      ) : (
+        <div className="stack-sm">
+          <input value={edit} onChange={(e) => setEdit(e.target.value)} placeholder="admin ơi, ad ơi, trợ lý ơi" autoFocus />
+          <span className="muted small">Cách nhau bằng dấu phẩy. Có dấu hay không dấu đều được.</span>
+          <div className="row">
+            <button type="button" className="small-btn" onClick={save}>
+              Lưu
+            </button>
+            <button type="button" className="link small" onClick={() => setEdit(null)}>
+              Huỷ
+            </button>
+          </div>
+        </div>
+      )}
       {error && <div className="notice bad small">{error}</div>}
     </div>
   );

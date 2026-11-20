@@ -60,6 +60,21 @@ describe("luật hệ thống trước khi gọi AI", () => {
     expect(decide(base({ lastOwnerAt: NOW - 9 * 60_000 })).act).toBe("skip");
   });
 
+  it("nhóm: gọi bằng từ quen miệng (có / không dấu) hoặc hỏi tiếp trong 10 phút thì như được tag; đang gọi người khác thì không", () => {
+    const g = { thread_id: "9", thread_type: "group" as const, assigned_profile_id: null, assigned_off: 0, handoff_until: 0 };
+    const gev = (o: Partial<InboundEvent>) => ev({ threadId: "9", threadType: "group", senderId: "u5", ...o });
+    const words = ["admin ơi", "BTC ơi"];
+    expect(decide(base({ conv: g, event: gev({ text: "Admin ơi, link zoom tối nay đâu ạ" }), callWords: words })).act).toBe("reply");
+    expect(decide(base({ conv: g, event: gev({ text: "admin oi cho em hoi" }), callWords: words })).act).toBe("reply");
+    expect(decide(base({ conv: g, event: gev({ text: "btc ơi!" }), callWords: words })).act).toBe("reply");
+    expect(decide(base({ conv: g, event: gev({ text: "Ad min hôm nay đẹp quá" }), callWords: words })).act).toBe("skip");
+    expect(decide(base({ conv: g, event: gev({ text: "Admin ơi xem giúp chị này", mentions: ["u7"] }), callWords: words })).act).toBe("skip");
+    // Hỏi tiếp sau khi trợ lý vừa trả lời chính người này.
+    expect(decide(base({ conv: g, event: gev({ text: "Thế học online được không" }), lastAnsweredSenderAt: NOW - 5 * 60_000 })).act).toBe("reply");
+    expect(decide(base({ conv: g, event: gev({ text: "Thế học online được không" }), lastAnsweredSenderAt: NOW - 11 * 60_000 })).act).toBe("skip");
+    expect(decide(base({ conv: g, event: gev({ text: "Đúng rồi chị", quoteOwnerId: "u7" }), lastAnsweredSenderAt: NOW - 60_000 })).act).toBe("skip");
+  });
+
   it("nhóm bật tự trả lời: câu hỏi chung thì trả lời (ambient); chuyện trò, gọi người khác, chuyện tiền thì im", () => {
     const g = { thread_id: "9", thread_type: "group" as const, assigned_profile_id: null, assigned_off: 0, handoff_until: 0, group_auto: 1 };
     const gev = (o: Partial<InboundEvent>) => ev({ threadId: "9", threadType: "group", senderId: "u5", ...o });
@@ -195,6 +210,21 @@ describe("luồng trả lời", () => {
     await t.receive(gq("Còn câu nữa được không ạ?"));
     expect(t.calls.length).toBe(calls);
     expect(t.inbox.conversation("g9")?.handoff_until).toBe(0);
+  });
+
+  it("nhóm: trợ lý trả lời ai thì người đó hỏi tiếp không cần tag; người khác vẫn phải gọi", async () => {
+    const t = setup({ reply: "Dạ tối nay 20h ạ." });
+    let tick = 0;
+    const g = (o: Partial<InboundEvent>) => ev({ threadId: "g9", threadType: "group", displayName: "Tú", messageId: `f${Math.random()}`, receivedAt: NOW + ++tick * 1000, ...o });
+    t.inbox.ensureConversation("g9", "group", "Nhóm học viên");
+    await t.receive(g({ senderId: "u5", text: "Lịch học tối nay mấy giờ ạ", mentions: [OWN] }));
+    expect(t.sent).toHaveLength(1);
+    await t.receive(g({ senderId: "u5", text: "Vậy có ghi hình lại không" }));
+    expect(t.sent).toHaveLength(2);
+    await t.receive(g({ senderId: "u6", text: "Vậy có ghi hình lại không" }));
+    expect(t.sent).toHaveLength(2);
+    await t.receive(g({ senderId: "u6", text: "Trợ lý ơi có ghi hình không ạ" }));
+    expect(t.sent).toHaveLength(3);
   });
 
   it("AI chọn im lặng thì không gửi gì", async () => {

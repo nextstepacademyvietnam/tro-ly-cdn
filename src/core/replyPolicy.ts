@@ -9,6 +9,20 @@ export const OLD_MESSAGE_MS = 10 * 60_000;
 export const OWNER_TAKEOVER_MS = 30 * 60_000;
 /** Trong nhóm, chủ nhắn tay chỉ làm trợ lý im 5 phút (nhóm đông, chủ trả lời người này không có nghĩa là lo luôn người khác). */
 export const GROUP_OWNER_TAKEOVER_MS = 5 * 60_000;
+/** Người vừa được trợ lý trả lời trong nhóm: hỏi tiếp trong khoảng này không cần tag lại. */
+export const GROUP_FOLLOW_UP_MS = 10 * 60_000;
+/** Từ gọi mặc định trong nhóm, tính như tag trợ lý (chủ sửa được). */
+export const DEFAULT_CALL_WORDS = ["admin ơi", "ad ơi", "trợ lý ơi", "bot ơi", "BTC ơi"];
+
+/** Tin có chứa một từ gọi (không phân biệt dấu, hoa thường; phải đứng thành cụm riêng). */
+export function hasCallWord(text: string, words: string[]): boolean {
+  const t = ` ${fold(text.replace(/@\S+/g, " ")).replace(/[.,!?;:…"'()]+/g, " ").replace(/\s+/g, " ")} `;
+  return words.some((w) => {
+    const f = fold(w).replace(/[.,!?;:…"'()]+/g, " ").trim();
+    return f.length >= 2 && t.includes(` ${f} `);
+  });
+}
+
 /** Nhóm tự trả lời: tối đa số tin trợ lý gửi vào một nhóm trong 1 giờ khi không ai tag. */
 export const GROUP_AUTO_PER_HOUR = 4;
 
@@ -90,6 +104,10 @@ export interface PolicyInput {
   lastOwnerAt: number;
   now: number;
   extraHandoffTerms?: string[];
+  /** Nhóm: từ gọi tính như tag trợ lý (VD "admin ơi"). */
+  callWords?: string[];
+  /** Nhóm: lần cuối trợ lý trả lời chính người đang nhắn (ms, 0 = chưa) — hỏi tiếp không cần tag lại. */
+  lastAnsweredSenderAt?: number;
 }
 
 export type Decision =
@@ -122,10 +140,14 @@ export function decide(i: PolicyInput): Decision {
 
   let ambient = false;
   if (isGroup) {
-    const addressed = (i.ownId && event.mentions.includes(i.ownId)) || (i.ownId && event.quoteOwnerId === i.ownId);
+    const tagged = (i.ownId && event.mentions.includes(i.ownId)) || (i.ownId && event.quoteOwnerId === i.ownId);
+    const toSomeoneElse = event.mentions.length > 0 || Boolean(event.quoteOwnerId);
+    // Gọi bằng từ quen miệng ("admin ơi"), hoặc người vừa được trợ lý trả lời hỏi tiếp — miễn không đang gọi / trả lời người khác.
+    const called = !toSomeoneElse && Boolean(text) && hasCallWord(text, i.callWords ?? []);
+    const followUp = !toSomeoneElse && Boolean(i.lastAnsweredSenderAt) && now - (i.lastAnsweredSenderAt ?? 0) < GROUP_FOLLOW_UP_MS;
+    const addressed = tagged || called || followUp;
     if (!addressed) {
       // Nhóm bật tự trả lời: chỉ câu hỏi chữ, không đang gọi / trả lời người khác.
-      const toSomeoneElse = event.mentions.length > 0 || Boolean(event.quoteOwnerId);
       if (!conv.group_auto || !event.isText || !text || toSomeoneElse || !looksLikeQuestion(text)) {
         return { act: "skip", reason: conv.group_auto ? "Tin trong nhóm không phải câu hỏi chung" : "Trong nhóm không ai gọi trợ lý" };
       }

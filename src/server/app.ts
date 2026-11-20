@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { DEFAULT_CALL_WORDS } from "../core/replyPolicy.js";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
@@ -296,6 +297,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
   replier.alertOwner = (id, text) => ownerAlerts.alert(id, text);
+  replier.callWords = (id) => settings.get<string[]>(`group.callWords.${id}`) ?? DEFAULT_CALL_WORDS;
   // Trả lời khách có nhớ hồ sơ chăm sóc (giai đoạn, thông tin, đã trao đổi, nhu cầu).
   // Tra khách trong Pancake CRM (cần đã nối Pancake ở mục MKT): gắn ở khối MKT bên dưới.
   let crm: CrmService | null = null;
@@ -335,7 +337,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
   registerAssistRoutes(app, { accounts, assist, replier, profiles, assistant, ownerAlerts });
 
-  registerAccountRoutes(app, accounts, profiles, assistant, schedules.store, careStore, (id, u) => admins.isAdmin(id, u));
+  registerAccountRoutes(app, accounts, profiles, assistant, schedules.store, careStore, (id, u) => admins.isAdmin(id, u), settings);
   registerProfileRoutes(app, profiles, accounts, engineOrNull);
   registerScheduleRoutes(app, schedules);
   registerAssistantRoutes(app, accounts, assistant, replier);
