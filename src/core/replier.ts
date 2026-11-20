@@ -3,7 +3,8 @@ import { type InboundEvent, MessageBatcher, type ThreadType, isOwnerCommandChann
 import type { ChatMessage, Engine } from "../engines/index.js";
 import type { AssistantStore, Draft } from "./assistantStore.js";
 import { type Profile, type ProfileStore, resolveProfile } from "./profiles.js";
-import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply, GROUP_AUTO_PER_HOUR, DEFAULT_CALL_WORDS } from "./replyPolicy.js";
+import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply, DEFAULT_CALL_WORDS } from "./replyPolicy.js";
+import { DEFAULT_SEND_LIMITS, type SendLimits } from "./sendLimits.js";
 
 /** Những gì bộ trả lời cần từ một tài khoản Zalo (tách ra để test không cần Zalo thật). */
 export interface ReplierAccount {
@@ -32,15 +33,16 @@ export interface ReplierOptions {
 
 const HISTORY = 30;
 /** Trần tự gửi cho một hội thoại: quá ngần này tin trợ lý tự gửi trong 1 giờ / 24 giờ thì chuyển sang soạn nháp. */
-export const AUTO_CAP_HOUR = 6;
-export const AUTO_CAP_DAY = 15;
+/** Mức mặc định (giữ để test cũ dùng); giá trị thật lấy theo nick qua `limits`. */
+export const AUTO_CAP_HOUR = DEFAULT_SEND_LIMITS.privateHour;
+export const AUTO_CAP_DAY = DEFAULT_SEND_LIMITS.privateDay;
 /**
  * Nhóm: nhiều người hỏi nên trần tính theo TỪNG NGƯỜI (chặn hai bot nhắn qua lại, hay một người nhắn dồn),
  * cộng trần chung cả nhóm cao hơn để nick không bị Zalo hạn chế.
  */
-export const GROUP_CAP_PER_SENDER_HOUR = 6;
-export const GROUP_CAP_HOUR = 20;
-export const GROUP_CAP_DAY = 60;
+export const GROUP_CAP_PER_SENDER_HOUR = DEFAULT_SEND_LIMITS.groupPerSenderHour;
+export const GROUP_CAP_HOUR = DEFAULT_SEND_LIMITS.groupHour;
+export const GROUP_CAP_DAY = DEFAULT_SEND_LIMITS.groupDay;
 
 /**
  * AI trả lời khách. Mỗi lượt tin của khách đi qua: gom tin → luật hệ thống (replyPolicy.decide)
@@ -78,6 +80,11 @@ export class Replier {
   } | null = null;
   /** Mỗi tin khách vừa ghi vào hộp thư (VD bắt số điện thoại khách để lại để gợi ý lưu CRM). */
   onCustomerMessage: ((accountId: number, event: InboundEvent) => void) | null = null;
+  /** Giới hạn tự gửi của tài khoản (chủ chỉnh được); không gắn thì dùng mặc định. */
+  limits: ((accountId: number) => SendLimits) | null = null;
+  private lim(accountId: number): SendLimits {
+    return this.limits?.(accountId) ?? DEFAULT_SEND_LIMITS;
+  }
   /** Từ gọi trợ lý trong nhóm của tài khoản (VD "admin ơi"); không gắn thì dùng mặc định. */
   callWords: ((accountId: number) => string[]) | null = null;
   /** Lần cuối trợ lý trả lời từng người trong nhóm (`tài khoản:nhóm:người` → ms). Mất khi khởi động lại là chấp nhận được. */
@@ -251,9 +258,10 @@ export class Replier {
   private autoCapReason(acc: ReplierAccount, threadId: string): string {
     const now = this.now();
     const hour = acc.inbox.aiSentSince(threadId, now - 3_600_000);
-    if (hour >= AUTO_CAP_HOUR) return `trợ lý đã tự gửi ${hour} tin trong 1 giờ`;
+    const l = this.lim(acc.accountId);
+    if (hour >= l.privateHour) return `trợ lý đã tự gửi ${hour} tin trong 1 giờ`;
     const day = acc.inbox.aiSentSince(threadId, now - 24 * 3_600_000);
-    if (day >= AUTO_CAP_DAY) return `trợ lý đã tự gửi ${day} tin trong 24 giờ`;
+    if (day >= l.privateDay) return `trợ lý đã tự gửi ${day} tin trong 24 giờ`;
     return "";
   }
 
@@ -261,11 +269,12 @@ export class Replier {
   private groupCapReason(acc: ReplierAccount, event: InboundEvent): string {
     const now = this.now();
     const mine = (this.groupSends.get(`${acc.accountId}:${event.threadId}:${event.senderId}`) ?? []).filter((t) => now - t < 3_600_000).length;
-    if (mine >= GROUP_CAP_PER_SENDER_HOUR) return `trợ lý đã trả lời ${event.displayName || "người này"} ${mine} tin trong 1 giờ`;
+    const l = this.lim(acc.accountId);
+    if (mine >= l.groupPerSenderHour) return `trợ lý đã trả lời ${event.displayName || "người này"} ${mine} tin trong 1 giờ`;
     const hour = acc.inbox.aiSentSince(event.threadId, now - 3_600_000);
-    if (hour >= GROUP_CAP_HOUR) return `trợ lý đã tự gửi ${hour} tin vào nhóm trong 1 giờ`;
+    if (hour >= l.groupHour) return `trợ lý đã tự gửi ${hour} tin vào nhóm trong 1 giờ`;
     const day = acc.inbox.aiSentSince(event.threadId, now - 24 * 3_600_000);
-    if (day >= GROUP_CAP_DAY) return `trợ lý đã tự gửi ${day} tin vào nhóm trong 24 giờ`;
+    if (day >= l.groupDay) return `trợ lý đã tự gửi ${day} tin vào nhóm trong 24 giờ`;
     return "";
   }
 
@@ -339,7 +348,7 @@ export class Replier {
 
   private async reply(acc: ReplierAccount, event: InboundEvent, profile: Profile, who: string, ambient = false) {
     // Nhóm tự trả lời: giới hạn số tin mỗi giờ để trợ lý không lấn át nhóm (và nick không bị Zalo hạn chế).
-    if (ambient && acc.inbox.aiSentSince(event.threadId, this.now() - 3_600_000) >= GROUP_AUTO_PER_HOUR) return;
+    if (ambient && acc.inbox.aiSentSince(event.threadId, this.now() - 3_600_000) >= this.lim(acc.accountId).groupAutoHour) return;
     const engine = this.engine();
     if (!engine) {
       this.store.notify(acc.accountId, "error", `Chưa cấu hình mô hình AI nên trợ lý chưa trả lời ${who}.`, event.threadId);

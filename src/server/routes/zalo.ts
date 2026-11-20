@@ -6,6 +6,7 @@ import type { CareStore } from "../../care/store.js";
 import type { ScheduleStore } from "../../scheduler/store.js";
 import { WAIT_LOOKBACK_MS, WAIT_REPLY_MS } from "../../core/waiting.js";
 import { DEFAULT_CALL_WORDS } from "../../core/replyPolicy.js";
+import { DEFAULT_SEND_LIMITS, SEND_LIMIT_RANGE, limitsKey, normalizeLimits } from "../../core/sendLimits.js";
 import type { Settings } from "../settings.js";
 
 declare module "fastify" {
@@ -241,6 +242,18 @@ export function registerAccountRoutes(
       throw fail(err);
     }
     return { ok: true };
+  });
+
+  // Giới hạn tin trợ lý tự gửi, theo tài khoản: giá trị đang dùng + mặc định + khoảng cho phép.
+  app.get("/api/zalo/limits", async (req) => ({
+    limits: normalizeLimits(settings?.get(limitsKey(req.accountId))),
+    defaults: DEFAULT_SEND_LIMITS,
+    range: SEND_LIMIT_RANGE,
+  }));
+  app.put<{ Body: { limits?: unknown; reset?: boolean } }>("/api/zalo/limits", async (req) => {
+    const limits = req.body?.reset ? DEFAULT_SEND_LIMITS : normalizeLimits(req.body?.limits);
+    settings?.set(limitsKey(req.accountId), limits);
+    return { limits };
   });
 
   // Từ gọi trợ lý trong nhóm (tính như tag), theo tài khoản.

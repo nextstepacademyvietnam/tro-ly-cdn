@@ -143,6 +143,7 @@ export function AccountsPage({
         )}
       </div>
       {connected && <OwnerAlertsCard key={account?.id ?? 0} />}
+      {connected && <SendLimitsCard key={`lim-${account?.id ?? 0}`} />}
       {connected && <AdminZalo key={`adm-${account?.id ?? 0}`} />}
       <div>
         <button type="button" onClick={() => onAddAccount().catch(() => undefined)}>
@@ -203,6 +204,102 @@ function OwnerAlertsCard() {
           {msg && <span className="muted small">{msg}</span>}
         </div>
       )}
+    </div>
+  );
+}
+
+type LimitKey = "privateHour" | "privateDay" | "groupPerSenderHour" | "groupHour" | "groupDay" | "groupAutoHour";
+type Limits = Record<LimitKey, number>;
+const LIMIT_ROWS: { section: string; rows: [LimitKey, string][] }[] = [
+  { section: "Chat riêng (mỗi khách)", rows: [["privateHour", "tin / 1 giờ"], ["privateDay", "tin / 24 giờ"]] },
+  {
+    section: "Nhóm",
+    rows: [
+      ["groupPerSenderHour", "tin trả lời mỗi người / 1 giờ"],
+      ["groupHour", "tin cả nhóm / 1 giờ"],
+      ["groupDay", "tin cả nhóm / 24 giờ"],
+      ["groupAutoHour", "tin khi tự trả lời (không ai gọi) / 1 giờ"],
+    ],
+  },
+];
+
+/**
+ * Giới hạn tin trợ lý tự gửi của nick này. Chạm giới hạn thì câu trả lời giữ ở dạng nháp chờ duyệt (không mất), báo bạn một lần.
+ * Có mức mặc định; chỉnh theo nhu cầu, bấm "Về mặc định" để quay lại.
+ */
+function SendLimitsCard() {
+  const [data, setData] = useState<{ limits: Limits; defaults: Limits; range: Record<LimitKey, [number, number]> } | null>(null);
+  const [form, setForm] = useState<Record<LimitKey, string> | null>(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fill = (l: Limits) => setForm(Object.fromEntries(Object.entries(l).map(([k, v]) => [k, String(v)])) as Record<LimitKey, string>);
+  useEffect(() => {
+    api<{ limits: Limits; defaults: Limits; range: Record<LimitKey, [number, number]> }>("/api/zalo/limits")
+      .then((r) => {
+        setData(r);
+        fill(r.limits);
+      })
+      .catch(() => undefined);
+  }, []);
+  if (!data || !form) return null;
+  const changed = (Object.keys(form) as LimitKey[]).some((k) => Number(form[k]) !== data.limits[k]);
+  const custom = (Object.keys(data.limits) as LimitKey[]).some((k) => data.limits[k] !== data.defaults[k]);
+  const save = async (reset = false) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const body = reset ? { reset: true } : { limits: Object.fromEntries((Object.keys(form) as LimitKey[]).map((k) => [k, Number(form[k])])) };
+      const r = await api<{ limits: Limits }>("/api/zalo/limits", { method: "PUT", body });
+      setData({ ...data, limits: r.limits });
+      fill(r.limits);
+      setMsg(reset ? "Đã về mức mặc định." : "Đã lưu. Áp dụng ngay cho tin tiếp theo.");
+    } catch (err) {
+      setMsg((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card stack">
+      <div>
+        <strong>Giới hạn tin trợ lý tự gửi</strong>
+        <p className="muted small alert-intro">
+          Chặn hai bot nhắn qua lại mãi và để nick không bị Zalo hạn chế. Chạm giới hạn thì câu trả lời được giữ ở dạng nháp chờ bạn duyệt, không mất.
+        </p>
+      </div>
+      {LIMIT_ROWS.map((sec) => (
+        <div key={sec.section} className="stack-sm">
+          <span className="small"><b>{sec.section}</b></span>
+          <div className="limit-grid">
+            {sec.rows.map(([k, label]) => (
+              <label key={k} className="limit-row">
+                <input
+                  type="number"
+                  min={data.range[k][0]}
+                  max={data.range[k][1]}
+                  value={form[k]}
+                  onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                />
+                <span className="small">
+                  {label} <span className="muted">(mặc định {data.defaults[k]})</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="row">
+        <button type="button" className="small-btn primary" disabled={busy || !changed} onClick={() => save(false)}>
+          Lưu
+        </button>
+        {custom && (
+          <button type="button" className="link small" disabled={busy} onClick={() => save(true)}>
+            Về mặc định
+          </button>
+        )}
+        {msg && <span className="muted small">{msg}</span>}
+      </div>
+      <p className="muted small">Đặt quá cao dễ bị Zalo hạn chế nick; mỗi ô có giới hạn trên để tránh lỡ tay.</p>
     </div>
   );
 }

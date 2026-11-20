@@ -242,6 +242,18 @@ describe("luồng trả lời", () => {
     expect(t.sent).toHaveLength(7);
   });
 
+  it("giới hạn chủ tự đặt thay mức mặc định", async () => {
+    const t = setup({ reply: "Dạ em trả lời ạ." });
+    t.replier.limits = () => ({ privateHour: 6, privateDay: 15, groupPerSenderHour: 2, groupHour: 20, groupDay: 60, groupAutoHour: 4 });
+    let tick = 0;
+    const g = (i: number) =>
+      ev({ threadId: "g9", threadType: "group", senderId: "u5", displayName: "u5", text: `Câu ${i}`, mentions: [OWN], messageId: `l${Math.random()}`, receivedAt: NOW + ++tick * 1000 });
+    t.inbox.ensureConversation("g9", "group", "Nhóm học viên");
+    for (let i = 0; i < 3; i++) await t.receive(g(i));
+    expect(t.sent).toHaveLength(2);
+    expect(t.store.pending(1, "g9")).toHaveLength(1);
+  });
+
   it("AI chọn im lặng thì không gửi gì", async () => {
     const t = setup({ reply: "[[IM_LANG]]" });
     await t.receive(ev({ text: "ok cảm ơn em" }));

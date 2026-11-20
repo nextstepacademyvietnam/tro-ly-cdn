@@ -946,7 +946,7 @@ function GroupAuto({ threadId, on, hasBot, onChanged }: { threadId: string; on: 
       </label>
       <p className="info-hint">
         {on
-          ? "Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được (tối đa 4 tin/giờ). Chuyện trò, câu hỏi dành cho người khác hay chuyện tiền thì im lặng."
+          ? "Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được (số tin mỗi giờ chỉnh ở trang Tài khoản Zalo → Giới hạn tin tự gửi). Chuyện trò, câu hỏi dành cho người khác hay chuyện tiền thì im lặng."
           : "Đang tắt: trợ lý trả lời khi có người tag nick này, trả lời vào tin của trợ lý, hoặc gọi bằng từ gọi bên dưới."}{" "}
         Người vừa được trợ lý trả lời hỏi tiếp trong 10 phút thì không cần gọi lại. Bạn nhắn tay trong nhóm thì trợ lý nhường 5 phút.
       </p>

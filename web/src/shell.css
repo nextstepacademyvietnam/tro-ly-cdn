@@ -332,3 +332,6 @@
 .sug-actions { display: flex; gap: 6px; }
 .group-auto { margin-top: 12px; display: grid; gap: 4px; }
 .call-words { display: grid; gap: 4px; margin-top: 4px; }
+.limit-grid { display: grid; gap: 6px; }
+.limit-row { display: flex; align-items: center; gap: 10px; }
+.limit-row input { width: 76px; }

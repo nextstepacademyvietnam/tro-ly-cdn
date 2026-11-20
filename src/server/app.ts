@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { DEFAULT_CALL_WORDS } from "../core/replyPolicy.js";
+import { limitsKey, normalizeLimits } from "../core/sendLimits.js";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
@@ -298,6 +299,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
   replier.alertOwner = (id, text) => ownerAlerts.alert(id, text);
   replier.callWords = (id) => settings.get<string[]>(`group.callWords.${id}`) ?? DEFAULT_CALL_WORDS;
+  replier.limits = (id) => normalizeLimits(settings.get(limitsKey(id)));
   // Trả lời khách có nhớ hồ sơ chăm sóc (giai đoạn, thông tin, đã trao đổi, nhu cầu).
   // Tra khách trong Pancake CRM (cần đã nối Pancake ở mục MKT): gắn ở khối MKT bên dưới.
   let crm: CrmService | null = null;
