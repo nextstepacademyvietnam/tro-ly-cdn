@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadImage } from "../api";
-import { type Recurrence, type RecurrenceType, type Schedule, type Target, URGENCY_LABEL, type Urgency, vnToday } from "./types";
+import { type AiMode, type Recurrence, type RecurrenceType, type Schedule, type Target, URGENCY_LABEL, type Urgency, vnToday } from "./types";
 
 const WEEKDAYS: { v: number; label: string }[] = [
   { v: 1, label: "T2" },
@@ -52,6 +52,15 @@ export function ScheduleForm({
   const [hasEnd, setHasEnd] = useState(Boolean(initial?.recurrence.endDate));
   const [mentionAll, setMentionAll] = useState(initial?.mentionAll ?? false);
   const [urgency, setUrgency] = useState<Urgency>(initial?.urgency ?? 0);
+  const [aiMode, setAiMode] = useState<AiMode>(initial?.aiMode ?? "off");
+  const [aiBrief, setAiBrief] = useState(initial?.aiBrief ?? "");
+  const [aiProfileId, setAiProfileId] = useState<number | null>(initial?.aiProfileId ?? null);
+  const [profiles, setProfiles] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    api<{ profiles: { id: number; name: string }[] }>("/api/profiles")
+      .then((r) => setProfiles(r.profiles))
+      .catch(() => undefined);
+  }, []);
   const groupCount = targets.filter((t) => t.threadType === "group").length;
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [search, setSearch] = useState("");
@@ -166,7 +175,19 @@ export function ScheduleForm({
       ...(rec.type === "monthly" ? { monthDay: Number(rec.monthDay) } : {}),
       ...(rec.type !== "once" && hasEnd && rec.endDate ? { endDate: rec.endDate } : {}),
     };
-    const body = { title, text, imageIds: images.map((i) => i.id), targets, recurrence, mentionAll: mentionAll && groupCount > 0, urgency };
+    const ai = aiMode !== "off";
+    const body = {
+      title,
+      text: ai ? "" : text,
+      imageIds: ai ? [] : images.map((i) => i.id),
+      targets,
+      recurrence,
+      mentionAll: mentionAll && groupCount > 0,
+      urgency,
+      aiMode,
+      aiBrief: ai ? aiBrief : "",
+      aiProfileId: ai ? aiProfileId : null,
+    };
     try {
       if (initial) await api(`/api/schedules/${initial.id}`, { method: "PUT", body });
       else await api("/api/schedules", { body });
@@ -229,6 +250,50 @@ export function ScheduleForm({
 
           <div className="stack-sm">
             <span className="field-label">Nội dung</span>
+            <div className="seg">
+              {(
+                [
+                  ["off", "Tự soạn sẵn"],
+                  ["draft", "AI viết mới mỗi lượt · chờ duyệt"],
+                  ["auto", "AI viết mới mỗi lượt · tự gửi"],
+                ] as [AiMode, string][]
+              ).map(([v, label]) => (
+                <button key={v} type="button" className={aiMode === v ? "active" : ""} onClick={() => setAiMode(v)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {aiMode !== "off" ? (
+            <div className="stack-sm">
+              <span className="field-label">Chủ đề cho AI</span>
+              <textarea
+                rows={5}
+                value={aiBrief}
+                onChange={(e) => setAiBrief(e.target.value)}
+                placeholder="VD: Mỗi sáng một mẹo chốt sale ngắn cho nhóm học viên, kèm một câu hỏi để mọi người trả lời. Giọng gần gũi, dưới 80 chữ."
+              />
+              <label className="inline">
+                Viết theo tính cách
+                <select value={aiProfileId ?? ""} onChange={(e) => setAiProfileId(e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">{profiles[0] ? `${profiles[0].name} (mặc định)` : "Mặc định"}</option>
+                  {profiles.slice(1).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="muted small">
+                Đến giờ, AI viết một tin mới theo chủ đề này, dùng tài liệu của tính cách đã chọn và tránh lặp các tin đã gửi.{" "}
+                {aiMode === "draft"
+                  ? "Tin nằm ở Cần xử lý của từng hội thoại, bạn sửa / duyệt rồi mới gửi."
+                  : "Tin được gửi luôn, không chờ duyệt — nên chạy thử chế độ chờ duyệt vài lượt trước."}
+              </span>
+            </div>
+          ) : (
+          <div className="stack-sm">
             <textarea ref={textRef} rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nội dung tin nhắn. VD: Chào {xưng hô} {tên}, tối nay 20h lớp mình học nhé!" />
             <div className="sched-vars">
               <span className="muted">Chèn:</span>
@@ -258,7 +323,9 @@ export function ScheduleForm({
             </div>
             {busy !== "ai" && text && brief && <span className="muted small">AI chỉ viết nháp vào ô trên — bạn sửa thoải mái trước khi lưu.</span>}
           </div>
+          )}
 
+          {aiMode === "off" && (
           <div className="stack-sm">
             <span className="field-label">
               Ảnh <span className="muted small">({images.length}/{MAX_IMAGES}, gửi trước phần chữ)</span>
@@ -290,6 +357,7 @@ export function ScheduleForm({
               }}
             />
           </div>
+          )}
 
           <div className="stack-sm">
             <span className="field-label">Cách gửi</span>

@@ -37,6 +37,7 @@ export function registerScheduleRoutes(app: FastifyInstance, { store, runner }: 
         sent: runs.filter((r) => r.status === "sent").length,
         failed: runs.filter((r) => r.status === "failed").length,
         missed: runs.filter((r) => r.status === "missed").length,
+        drafted: runs.filter((r) => r.status === "drafted").length,
       },
       lastRuns: runs.slice(0, 5),
     };

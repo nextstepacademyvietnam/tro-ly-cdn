@@ -158,8 +158,10 @@ export interface Draft {
   text: string;
   handoff: boolean;
   createdAt: number;
-  /** "care" = tin chăm sóc chủ động do trợ lý tự soạn theo kế hoạch. */
-  origin?: "reply" | "care";
+  /** "care" = tin chăm sóc chủ động; "schedule" = tin lịch gửi do AI soạn. */
+  origin?: "reply" | "care" | "schedule";
+  /** Cách gửi khi duyệt (tin lịch gửi). */
+  sendOpts?: { mentionAll: boolean; urgency: 0 | 1 | 2 } | null;
 }
 
 export type CareStatus = "active" | "paused" | "stopped";

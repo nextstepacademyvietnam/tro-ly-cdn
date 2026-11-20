@@ -14,7 +14,7 @@ export interface ReplierAccount {
   isConnected(): boolean;
   labels(): Promise<unknown[] | null>;
   groupName(threadId: string): Promise<string>;
-  sendText(threadId: string, type: ThreadType, text: string, opts?: { proactive?: boolean }): Promise<string[]>;
+  sendText(threadId: string, type: ThreadType, text: string, opts?: { proactive?: boolean; urgency?: 0 | 1 | 2; mentionAll?: boolean }): Promise<string[]>;
   /** Ghi nhãn thật trong Zalo (null = gỡ các nhãn trong `exclusive`). */
   setLabel(threadId: string, type: ThreadType, target: string | null, exclusive: string[]): Promise<unknown>;
   /** Cách gọi một người (anh / chị / bạn) theo giới tính đã lưu. */
@@ -393,8 +393,11 @@ export class Replier {
     if (!body) throw new Error("Nội dung trống");
     try {
       // Tin chăm sóc là tin chủ động: bộ nhịp gửi chặn giờ yên lặng.
-      const ids = await acc.sendText(d.threadId, conv?.thread_type ?? "user", body, { proactive: d.origin === "care" });
-      acc.inbox.recordOutbound(d.threadId, conv?.thread_type ?? "user", body, "ai", ids[0] ?? null, this.now());
+      const type = conv?.thread_type ?? "user";
+      // Tin lịch gửi do AI soạn: gửi kèm @All / mức độ đã chọn ở lịch.
+      const mentionAll = Boolean(d.sendOpts?.mentionAll) && type === "group";
+      const ids = await acc.sendText(d.threadId, type, body, { proactive: d.origin === "care", urgency: d.sendOpts?.urgency ?? 0, mentionAll });
+      acc.inbox.recordOutbound(d.threadId, type, mentionAll ? `@All ${body}` : body, "ai", ids[0] ?? null, this.now());
       this.store.decide(draftId, "sent", "", body);
       this.onDraftSent?.({ ...d, text: body, status: "sent" });
     } catch (err) {

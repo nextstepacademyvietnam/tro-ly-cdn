@@ -62,10 +62,20 @@ export function ScheduleList({
                 {s.summary}
                 {s.mentionAll && <span className="run-tag mention">@All</span>}
                 {s.urgency > 0 && <span className={`run-tag ${s.urgency === 2 ? "failed" : "missed"}`}>{URGENCY_LABEL[s.urgency]}</span>}
+                {s.aiMode !== "off" && <span className="run-tag mention">{s.aiMode === "draft" ? "AI soạn · chờ duyệt" : "AI soạn · tự gửi"}</span>}
               </div>
               <div className="sched-text">
-                {s.images.length > 0 && <span className="muted">🖼 {s.images.length} ảnh · </span>}
-                {s.text || <em className="muted">(chỉ có ảnh)</em>}
+                {s.aiMode !== "off" ? (
+                  <>
+                    <span className="muted">Chủ đề cho AI: </span>
+                    {s.aiBrief}
+                  </>
+                ) : (
+                  <>
+                    {s.images.length > 0 && <span className="muted">🖼 {s.images.length} ảnh · </span>}
+                    {s.text || <em className="muted">(chỉ có ảnh)</em>}
+                  </>
+                )}
               </div>
               {!compact || s.targets.length > 1 ? (
                 <div className="small muted">
@@ -77,7 +87,8 @@ export function ScheduleList({
                 {s.stats.sent > 0 && <span className="run-tag sent">Đã gửi {s.stats.sent}</span>}
                 {s.stats.failed > 0 && <span className="run-tag failed">Lỗi {s.stats.failed}</span>}
                 {s.stats.missed > 0 && <span className="run-tag missed">Lỡ giờ {s.stats.missed}</span>}
-                {(s.stats.sent || s.stats.failed || s.stats.missed) > 0 && (
+                {s.stats.drafted > 0 && <span className="run-tag mention">Đã soạn nháp {s.stats.drafted}</span>}
+                {(s.stats.sent || s.stats.failed || s.stats.missed || s.stats.drafted) > 0 && (
                   <button className="link small" onClick={() => toggle(s.id)}>
                     {open === s.id ? "Ẩn lịch sử" : "Lịch sử gửi"}
                   </button>
@@ -139,7 +150,9 @@ export function ScheduleList({
                       <span className={`run-tag ${r.status}`}>{RUN_LABEL[r.status]}</span> {targetName(r.threadId)} · {fmtDateTime(r.doneAt)}
                       {r.manual && <span className="muted"> · gửi tay</span>}
                       {r.error && <div className="muted">{r.error}</div>}
-                      {r.status !== "sent" && (
+                      {r.text && <div className="run-text">{r.text}</div>}
+                      {r.status === "drafted" && <div className="muted">Nháp nằm ở Cần xử lý của hội thoại này, duyệt rồi mới gửi.</div>}
+                      {r.status !== "sent" && r.status !== "drafted" && (
                         <button className="link small" onClick={() => act(s, `/api/schedule-runs/${r.id}/retry`)} disabled={busy === s.id}>
                           Gửi lại
                         </button>

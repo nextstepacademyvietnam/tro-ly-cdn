@@ -1,6 +1,7 @@
 export type RecurrenceType = "once" | "daily" | "weekly" | "monthly";
 export type ScheduleStatus = "active" | "paused" | "cancelled" | "done";
-export type RunStatus = "sent" | "failed" | "missed";
+export type RunStatus = "sent" | "failed" | "missed" | "drafted";
+export type AiMode = "off" | "draft" | "auto";
 export type Urgency = 0 | 1 | 2;
 export const URGENCY_LABEL: Record<Urgency, string> = { 0: "Thường", 1: "Quan trọng", 2: "Khẩn cấp" };
 
@@ -28,6 +29,7 @@ export interface ScheduleRun {
   error: string;
   doneAt: number;
   manual: boolean;
+  text?: string;
 }
 
 export interface Schedule {
@@ -42,11 +44,15 @@ export interface Schedule {
   mentionAll: boolean;
   /** 0 thường, 1 quan trọng, 2 khẩn cấp. */
   urgency: Urgency;
+  /** off = gửi nội dung soạn sẵn; draft = AI viết mới mỗi lượt, chờ duyệt; auto = AI viết và tự gửi. */
+  aiMode: AiMode;
+  aiBrief: string;
+  aiProfileId: number | null;
   status: ScheduleStatus;
   nextRunAt: number | null;
   summary: string;
   quietHours: boolean;
-  stats: { sent: number; failed: number; missed: number };
+  stats: { sent: number; failed: number; missed: number; drafted: number };
   lastRuns: ScheduleRun[];
   updatedAt: number;
 }
@@ -62,6 +68,7 @@ export const RUN_LABEL: Record<RunStatus, string> = {
   sent: "Đã gửi",
   failed: "Lỗi",
   missed: "Lỡ giờ",
+  drafted: "Chờ duyệt",
 };
 
 export const fmtDateTime = (ms: number) =>

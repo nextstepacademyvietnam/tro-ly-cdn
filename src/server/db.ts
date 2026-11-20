@@ -462,6 +462,29 @@ const MIGRATIONS: string[] = [
   // v19: lịch gửi — tag tất cả (@All, chỉ nhóm) và mức độ tin (0 thường, 1 quan trọng, 2 khẩn cấp).
   `ALTER TABLE schedules ADD COLUMN mention_all INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE schedules ADD COLUMN urgency INTEGER NOT NULL DEFAULT 0;`,
+  // v20: lịch gửi do AI soạn — mỗi lượt AI viết tin mới theo chủ đề; nháp chờ duyệt hoặc tự gửi.
+  // Nháp nhớ cách gửi (@All, mức độ) và lịch sinh ra nó; lượt gửi nhớ nội dung đã gửi để AI không lặp lại.
+  `ALTER TABLE schedules ADD COLUMN ai_mode TEXT NOT NULL DEFAULT 'off';
+   ALTER TABLE schedules ADD COLUMN ai_brief TEXT NOT NULL DEFAULT '';
+   ALTER TABLE schedules ADD COLUMN ai_profile_id INTEGER;
+   ALTER TABLE drafts ADD COLUMN send_opts TEXT NOT NULL DEFAULT '';
+   ALTER TABLE drafts ADD COLUMN schedule_id INTEGER;
+   CREATE TABLE schedule_runs_v20 (
+     id INTEGER PRIMARY KEY,
+     schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+     thread_id TEXT NOT NULL,
+     planned_at INTEGER NOT NULL,
+     status TEXT NOT NULL CHECK (status IN ('sent', 'failed', 'missed', 'drafted')),
+     error TEXT NOT NULL DEFAULT '',
+     done_at INTEGER NOT NULL,
+     manual INTEGER NOT NULL DEFAULT 0,
+     text TEXT NOT NULL DEFAULT ''
+   );
+   INSERT INTO schedule_runs_v20 (id, schedule_id, thread_id, planned_at, status, error, done_at, manual)
+     SELECT id, schedule_id, thread_id, planned_at, status, error, done_at, manual FROM schedule_runs;
+   DROP TABLE schedule_runs;
+   ALTER TABLE schedule_runs_v20 RENAME TO schedule_runs;
+   CREATE INDEX schedule_runs_schedule ON schedule_runs (schedule_id, done_at DESC);`,
 ];
 
 export function openDb(file = path.join(DATA_DIR, "tro-ly.sqlite")): DB {

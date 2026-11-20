@@ -180,6 +180,11 @@ export class Inbox {
     return new Map(rows.map((r) => [r.thread_id, Number(r.t)]));
   }
 
+  /** Có sẵn dòng hội thoại (VD nhóm chưa từng có tin) để nháp lịch gửi hiện được ở Cần xử lý. */
+  ensureConversation(threadId: string, type: ThreadType, name?: string) {
+    this.touchConversation(threadId, type, "", 0, 0, name);
+  }
+
   conversation(threadId: string): ConversationRow | undefined {
     return this.db
       .prepare("SELECT * FROM conversations WHERE account_id = ? AND thread_id = ?")

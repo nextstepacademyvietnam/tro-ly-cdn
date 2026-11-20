@@ -237,6 +237,26 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
   replier.onDraftSent = (d) => care.onDraftSent(d);
+
+  // ---------- Lịch gửi do AI soạn: mỗi lượt AI viết tin mới theo chủ đề ----------
+  schedules.runner.setComposer({
+    compose: async (s, previous) => {
+      const engine = engineOrNull();
+      if (!engine) throw new Error("Chưa chọn mô hình AI (Cài đặt → Mô hình AI)");
+      const list = profiles.list(s.accountId);
+      const p = list.find((x) => x.id === s.aiProfileId) ?? list[0];
+      const base = p ? profiles.compose(p.id) : "Bạn là trợ lý nhắn tin Zalo, nói tiếng Việt tự nhiên.";
+      const raw = await engine.generate({ system: base + scheduleComposeRules(s, previous), messages: [{ role: "user", content: s.aiBrief }] });
+      return cleanComposed(raw);
+    },
+    draft: async (s, t, raw) => {
+      const svc = accounts.get(s.accountId);
+      const text = await svc.personalize(t, raw);
+      svc.inbox.ensureConversation(t.threadId, t.threadType, t.name || undefined);
+      assistant.addScheduleDraft(s.accountId, t.threadId, s.aiProfileId, text, s.id, { mentionAll: s.mentionAll, urgency: s.urgency });
+      assistant.notify(s.accountId, "draft", `AI đã soạn tin lịch "${s.title || "không tên"}" cho ${t.name || "một hội thoại"}, chờ bạn duyệt.`, t.threadId);
+    },
+  });
   if (deps.dataDir) care.start();
   app.addHook("onClose", async () => care.stop());
   registerCareRoutes(app, { store: careStore, service: care, accounts, profiles });
@@ -521,4 +541,31 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 function clean(v: string | undefined): string | undefined {
   const s = typeof v === "string" ? v.trim() : "";
   return s ? s : undefined;
+}
+
+/** Lời dặn thêm cho AI khi soạn tin lịch gửi: một tin, đúng chủ đề, không lặp các tin trước. */
+export function scheduleComposeRules(s: { targets: { threadType: string }[]; title: string }, previous: string[]): string {
+  const groups = s.targets.some((t) => t.threadType === "group");
+  const lines = [
+    "",
+    "",
+    "# Việc bây giờ: soạn tin gửi theo lịch",
+    "Chủ đặt lịch để mỗi lượt bạn viết MỘT tin nhắn Zalo MỚI theo chủ đề / yêu cầu ở tin của chủ bên dưới.",
+    groups ? "Tin gửi vào nhóm Zalo: nói với cả nhóm (gọi \"mọi người\" / \"cả nhà\"), không gọi tên riêng ai." : "Tin gửi cho từng người.",
+    "Chỉ trả về đúng nội dung tin nhắn: không lời dẫn, không markdown, không ngoặc kép bao quanh, không ghi chú cho chủ.",
+    "Ngắn gọn, tự nhiên, có ích. Thông tin sản phẩm, giá, lịch chỉ lấy từ tài liệu; không bịa số liệu, không hứa điều tài liệu không có.",
+    `Hôm nay: ${new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)} (giờ Việt Nam).`,
+  ];
+  if (previous.length) {
+    lines.push("", "Các tin đã gửi gần đây của lịch này — viết khác hẳn (ý mới, mở đầu khác), không lặp lại:");
+    for (const t of previous) lines.push(`<tin_cu>${t.slice(0, 800)}</tin_cu>`);
+  }
+  return lines.join("\n");
+}
+
+/** Bỏ ngoặc kép bao quanh / khối code mà AI đôi khi thêm vào. */
+export function cleanComposed(raw: string): string {
+  let t = raw.trim().replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "").trim();
+  if (/^["“].*["”]$/s.test(t)) t = t.slice(1, -1).trim();
+  return t.slice(0, 6000);
 }

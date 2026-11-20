@@ -80,6 +80,7 @@ function setup(opts: { reply?: string | Error; sendMode?: "draft" | "auto"; conn
   const store = new AssistantStore(db);
   profiles.update(1, { name: "CSKH", tag: "Bot CSKH", identity: { voice: "Xưng em, gọi anh/chị." }, sendMode: opts.sendMode ?? "auto", applies: "both", priority: 1 });
   const sent: { thread: string; text: string }[] = [];
+  const sentOpts: unknown[] = [];
   const calls: GenerateRequest[] = [];
   const labelWrites: { thread: string; target: string | null }[] = [];
   let labels: unknown[] | null = [{ text: "Bot CSKH", conversations: ["u1", "g9"] }];
@@ -91,8 +92,9 @@ function setup(opts: { reply?: string | Error; sendMode?: "draft" | "auto"; conn
     isConnected: () => opts.connected ?? true,
     labels: async () => labels,
     groupName: async () => "Nhóm học viên",
-    sendText: async (thread, _t, text) => {
+    sendText: async (thread, _t, text, o) => {
       sent.push({ thread, text });
+      sentOpts.push(o ?? {});
       return [`s${sent.length}`];
     },
     setLabel: async (thread, _t, target) => {
@@ -113,7 +115,7 @@ function setup(opts: { reply?: string | Error; sendMode?: "draft" | "auto"; conn
     inbox.recordInbound(e, { conversationName: e.displayName });
     await replier.process(1, e);
   };
-  return { db, inbox, store, replier, sent, calls, labelWrites, receive, setLabels: (l: unknown[] | null) => (labels = l) };
+  return { db, inbox, store, replier, sent, sentOpts, calls, labelWrites, receive, setLabels: (l: unknown[] | null) => (labels = l) };
 }
 
 describe("luồng trả lời", () => {
@@ -139,6 +141,22 @@ describe("luồng trả lời", () => {
     await t.replier.sendDraft(d.id, "Dạ khoá học hiện là 1.999.000đ ạ, anh cần em gửi lịch học không?");
     expect(t.sent[0].text).toMatch(/gửi lịch học/);
     expect(t.store.draft(d.id)?.status).toBe("sent");
+  });
+
+  it("nháp lịch gửi do AI soạn: không bị nháp trả lời thay, duyệt thì gửi kèm @All và mức độ", async () => {
+    const t = setup({ sendMode: "draft" });
+    t.inbox.ensureConversation("g9", "group", "Nhóm học viên");
+    const sd = t.store.addScheduleDraft(1, "g9", null, "Mẹo hôm nay", 7, { mentionAll: true, urgency: 2 }, NOW);
+    expect(sd).toMatchObject({ origin: "schedule", scheduleId: 7, sendOpts: { mentionAll: true, urgency: 2 } });
+    t.store.addDraft(1, "g9", 1, "Dạ em trả lời", false, NOW);
+    expect(t.store.pending(1, "g9").map((d) => d.origin).sort()).toEqual(["reply", "schedule"]);
+    // Lượt sau của cùng lịch thay nháp cũ chưa duyệt.
+    const sd2 = t.store.addScheduleDraft(1, "g9", null, "Mẹo ngày mai", 7, { mentionAll: true, urgency: 2 }, NOW + 1);
+    expect(t.store.draft(sd.id)?.status).toBe("superseded");
+    await t.replier.sendDraft(sd2.id);
+    expect(t.sent.at(-1)).toEqual({ thread: "g9", text: "Mẹo ngày mai" });
+    expect(t.sentOpts.at(-1)).toMatchObject({ mentionAll: true, urgency: 2 });
+    expect(t.inbox.messages("g9").at(-1)?.text).toBe("@All Mẹo ngày mai");
   });
 
   it("AI chọn im lặng thì không gửi gì", async () => {

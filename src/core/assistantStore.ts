@@ -13,8 +13,12 @@ export interface Draft {
   error: string;
   createdAt: number;
   decidedAt: number | null;
-  /** "care" = tin chăm sóc chủ động do bộ chạy chăm sóc soạn, "reply" = trả lời tin khách. */
-  origin: "reply" | "care";
+  /** "care" = tin chăm sóc chủ động, "schedule" = tin lịch gửi do AI soạn, "reply" = trả lời tin khách. */
+  origin: "reply" | "care" | "schedule";
+  /** Cách gửi khi duyệt (tin lịch gửi): tag tất cả, mức độ. */
+  sendOpts: { mentionAll: boolean; urgency: 0 | 1 | 2 } | null;
+  /** Lịch gửi sinh ra nháp (origin "schedule"). */
+  scheduleId: number | null;
   /** Bản AI soạn ban đầu khi chủ đã sửa trước lúc gửi (null = gửi nguyên văn hoặc chưa gửi). */
   originalText: string | null;
 }
@@ -40,9 +44,22 @@ const toDraft = (r: Record<string, unknown>): Draft => ({
   error: String(r.error ?? ""),
   createdAt: Number(r.created_at),
   decidedAt: r.decided_at === null ? null : Number(r.decided_at),
-  origin: r.origin === "care" ? "care" : "reply",
+  origin: r.origin === "care" || r.origin === "schedule" ? r.origin : "reply",
+  sendOpts: parseSendOpts(r.send_opts),
+  scheduleId: r.schedule_id == null ? null : Number(r.schedule_id),
   originalText: r.original_text == null ? null : String(r.original_text),
 });
+
+function parseSendOpts(v: unknown): Draft["sendOpts"] {
+  if (!v) return null;
+  try {
+    const o = JSON.parse(String(v)) as { mentionAll?: unknown; urgency?: unknown };
+    const u = Number(o.urgency);
+    return { mentionAll: Boolean(o.mentionAll), urgency: (u === 1 || u === 2 ? u : 0) as 0 | 1 | 2 };
+  } catch {
+    return null;
+  }
+}
 
 /** Nháp chờ duyệt, thông báo cho chủ, cờ tạm dừng của tài khoản. */
 export class AssistantStore {
@@ -66,9 +83,33 @@ export class AssistantStore {
     return this.draft(Number(r.lastInsertRowid))!;
   }
 
+  /**
+   * Nháp tin lịch gửi do AI soạn: chỉ thay nháp cũ của CHÍNH lịch này trong hội thoại (lượt trước chưa duyệt),
+   * không đụng nháp trả lời khách. Nhớ cách gửi (@All, mức độ) để lúc duyệt gửi đúng.
+   */
+  addScheduleDraft(
+    accountId: number,
+    threadId: string,
+    profileId: number | null,
+    text: string,
+    scheduleId: number,
+    sendOpts: { mentionAll: boolean; urgency: 0 | 1 | 2 },
+    now = Date.now(),
+  ): Draft {
+    this.db
+      .prepare("UPDATE drafts SET status = 'superseded', decided_at = ? WHERE account_id = ? AND thread_id = ? AND status = 'pending' AND schedule_id = ?")
+      .run(now, accountId, threadId, scheduleId);
+    const r = this.db
+      .prepare(
+        "INSERT INTO drafts (account_id, thread_id, profile_id, text, handoff, created_at, origin, send_opts, schedule_id) VALUES (?, ?, ?, ?, 0, ?, 'schedule', ?, ?)",
+      )
+      .run(accountId, threadId, profileId, text, now, JSON.stringify(sendOpts), scheduleId);
+    return this.draft(Number(r.lastInsertRowid))!;
+  }
+
   supersede(accountId: number, threadId: string, now = Date.now()) {
     this.db
-      .prepare("UPDATE drafts SET status = 'superseded', decided_at = ? WHERE account_id = ? AND thread_id = ? AND status = 'pending'")
+      .prepare("UPDATE drafts SET status = 'superseded', decided_at = ? WHERE account_id = ? AND thread_id = ? AND status = 'pending' AND origin <> 'schedule'")
       .run(now, accountId, threadId);
   }
 

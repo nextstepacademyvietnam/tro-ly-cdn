@@ -9,6 +9,7 @@ import {
   Info,
   ListFilter,
   HeartHandshake,
+  CalendarClock,
   PencilLine,
   Search,
   Sparkles,
@@ -947,10 +948,13 @@ function DraftList({ threadId, canSend, now, onSent, pollKey }: { threadId: stri
         const waited = now - d.createdAt;
         const level = waitLevel(waited);
         return (
-          <div key={d.id} className={d.origin === "care" ? "task-card care-draft" : "task-card"}>
+          <div key={d.id} className={d.origin === "care" || d.origin === "schedule" ? "task-card care-draft" : "task-card"}>
             <div className="task-head">
-              {d.origin === "care" ? <HeartHandshake aria-hidden /> : <PencilLine aria-hidden />}
-              {d.origin === "care" ? "Tin chăm sóc chủ động" : "Trợ lý soạn nháp"} ·{" "}
+              {d.origin === "care" ? <HeartHandshake aria-hidden /> : d.origin === "schedule" ? <CalendarClock aria-hidden /> : <PencilLine aria-hidden />}
+              {d.origin === "care" ? "Tin chăm sóc chủ động" : d.origin === "schedule" ? "Tin lịch gửi do AI soạn" : "Trợ lý soạn nháp"}
+              {d.sendOpts?.mentionAll && " · @All"}
+              {d.sendOpts?.urgency === 1 && " · Quan trọng"}
+              {d.sendOpts?.urgency === 2 && " · Khẩn cấp"} ·{" "}
               <span className={level ? "badge" : "badge task"} data-level={level || undefined}>
                 chờ {waitText(waited)}
               </span>
