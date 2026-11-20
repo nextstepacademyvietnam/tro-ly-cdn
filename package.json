@@ -33,7 +33,7 @@
     "fastify": "^5.12.8",
     "image-size": "^2.1.0",
     "mammoth": "^1.13.0",
-    "unpdf": "^2.1.0",
+    "unpdf": "^2.2.1",
     "zca-js": "2.1.2"
   },
   "devDependencies": {
