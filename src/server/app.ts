@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import { DEFAULT_CALL_WORDS } from "../core/replyPolicy.js";
+import { limitsKey, normalizeLimits } from "../core/sendLimits.js";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
@@ -13,6 +15,22 @@ import { ProfileStore } from "../core/profiles.js";
 import { ScheduleRunner } from "../scheduler/runner.js";
 import { ScheduleStore } from "../scheduler/store.js";
 import { registerAccountRoutes } from "./routes/zalo.js";
+import { registerCareRoutes } from "./routes/care.js";
+import { registerAssistRoutes } from "./routes/assist.js";
+import { AssistService } from "../assist/service.js";
+import { ConnectionWatch } from "./connectionWatch.js";
+import { OwnerAlerts } from "./ownerAlerts.js";
+import { AdminCommands, AdminStore } from "../admin/commands.js";
+import { Reports } from "../admin/reports.js";
+import { registerAdminRoutes } from "./routes/admin.js";
+import { OrgConnection } from "../org/connection.js";
+import { registerOrgRoutes } from "./routes/org.js";
+import { CrmService, hashPhone, phonesIn } from "../crm/service.js";
+import { ZaloMatcher } from "../crm/zaloMatch.js";
+import { registerCrmRoutes } from "./routes/crm.js";
+import { DEFAULT_RULES, type LeadRules } from "../mkt/connectors/pancake.js";
+import { CareStore } from "../care/store.js";
+import { CareService } from "../care/service.js";
 import { registerProfileRoutes } from "./routes/profiles.js";
 import { registerAssistantRoutes } from "./routes/assistant.js";
 import { AssistantStore } from "../core/assistantStore.js";
@@ -209,7 +227,119 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (reminderTimer) clearInterval(reminderTimer);
   });
 
-  registerAccountRoutes(app, accounts, profiles, assistant, schedules.store);
+  // ---------- Chăm sóc khách chủ động ----------
+  const careStore = new CareStore(deps.db);
+  const care = new CareService({
+    store: careStore,
+    assistant,
+    profiles,
+    account: (id) => accounts.replierAccount(id),
+    accountIds: () => accounts.list().map((a) => a.id),
+    engine: engineOrNull,
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  replier.onDraftSent = (d) => care.onDraftSent(d);
+
+  // ---------- Lịch gửi do AI soạn: mỗi lượt AI viết tin mới theo chủ đề ----------
+  schedules.runner.setComposer({
+    compose: async (s, previous) => {
+      const engine = engineOrNull();
+      if (!engine) throw new Error("Chưa chọn mô hình AI (Cài đặt → Mô hình AI)");
+      const list = profiles.list(s.accountId);
+      const p = list.find((x) => x.id === s.aiProfileId) ?? list[0];
+      const base = p ? profiles.compose(p.id) : "Bạn là trợ lý nhắn tin Zalo, nói tiếng Việt tự nhiên.";
+      const raw = await engine.generate({ system: base + scheduleComposeRules(s, previous), messages: [{ role: "user", content: s.aiBrief }] });
+      return cleanComposed(raw);
+    },
+    draft: async (s, t, raw) => {
+      const svc = accounts.get(s.accountId);
+      const text = await svc.personalize(t, raw);
+      svc.inbox.ensureConversation(t.threadId, t.threadType, t.name || undefined);
+      assistant.addScheduleDraft(s.accountId, t.threadId, s.aiProfileId, text, s.id, { mentionAll: s.mentionAll, urgency: s.urgency });
+      assistant.notify(s.accountId, "draft", `AI đã soạn tin lịch "${s.title || "không tên"}" cho ${t.name || "một hội thoại"}, chờ bạn duyệt.`, t.threadId);
+    },
+  });
+  if (deps.dataDir) care.start();
+  app.addHook("onClose", async () => care.stop());
+  registerCareRoutes(app, { store: careStore, service: care, accounts, profiles });
+
+  // ---------- Khách chờ lâu, gợi ý gắn nhãn, học hỏi đáp từ chủ, canh kết nối Zalo ----------
+  const assist = new AssistService({
+    db: deps.db,
+    isAdmin: (id, u) => admins.isAdmin(id, u),
+    assistant,
+    profiles,
+    account: (id) => accounts.replierAccount(id),
+    accountIds: () => accounts.list().map((a) => a.id),
+    engine: engineOrNull,
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  const watch = new ConnectionWatch(accounts, assistant);
+  // Admin ra lệnh qua Zalo và báo cáo định kỳ cho admin.
+  const admins = new AdminStore(deps.db);
+  const reports = new Reports({
+    db: deps.db,
+    assistant,
+    accountIds: () => accounts.list().map((a) => a.id),
+    account: (id) => accounts.replierAccount(id),
+    adminIds: (id) => admins.ids(id),
+    selfThread: (id) => admins.cloudThread(id),
+    careDue: (id, now) => careStore.dueToday(id, now),
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  // Báo chủ qua Zalo "Cloud của tôi": khách cần người thật, nháp chờ lâu, tóm tắt cuối ngày.
+  const ownerAlerts = new OwnerAlerts({
+    db: deps.db,
+    assistant,
+    accountIds: () => accounts.list().map((a) => a.id),
+    account: (id) => accounts.replierAccount(id),
+    careDue: (id, now) => careStore.dueToday(id, now),
+    selfThread: (id) => admins.cloudThread(id),
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  replier.alertOwner = (id, text) => ownerAlerts.alert(id, text);
+  replier.callWords = (id) => settings.get<string[]>(`group.callWords.${id}`) ?? DEFAULT_CALL_WORDS;
+  replier.limits = (id) => normalizeLimits(settings.get(limitsKey(id)));
+  // Trả lời khách có nhớ hồ sơ chăm sóc (giai đoạn, thông tin, đã trao đổi, nhu cầu).
+  // Tra khách trong Pancake CRM (cần đã nối Pancake ở mục MKT): gắn ở khối MKT bên dưới.
+  let crm: CrmService | null = null;
+  let zaloMatcher: ZaloMatcher | null = null;
+  replier.customerNote = (id, threadId) => {
+    const p = careStore.get(id, threadId);
+    const care = p
+      ? [
+          p.stage && `Giai đoạn: ${p.stage}`,
+          p.facts && `Thông tin khách:\n${p.facts}`,
+          p.summary && `Đã trao đổi:\n${p.summary}`,
+          p.needs && `Nhu cầu, vướng mắc:\n${p.needs}`,
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "";
+    let fromCrm = "";
+    try {
+      const svc = accounts.get(id);
+      fromCrm = crm?.note(id, threadId, svc.inbox, svc.contacts.phone(threadId)) ?? "";
+    } catch {
+      /* tài khoản vừa xoá */
+    }
+    return [care, fromCrm].filter(Boolean).join("\n\n");
+  };
+  if (deps.dataDir) {
+    assist.start();
+    watch.start();
+    ownerAlerts.start();
+    reports.start();
+  }
+  app.addHook("onClose", async () => {
+    assist.stop();
+    watch.stop();
+    ownerAlerts.stop();
+    reports.stop();
+  });
+  registerAssistRoutes(app, { accounts, assist, replier, profiles, assistant, ownerAlerts });
+
+  registerAccountRoutes(app, accounts, profiles, assistant, schedules.store, careStore, (id, u) => admins.isAdmin(id, u), settings);
   registerProfileRoutes(app, profiles, accounts, engineOrNull);
   registerScheduleRoutes(app, schedules);
   registerAssistantRoutes(app, accounts, assistant, replier);
@@ -225,6 +355,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     log: (msg, extra) => app.log.warn(extra ?? {}, msg),
   });
+  replier.groupPersona = {
+    find: (accountId, userId) => groups.personaForMember(accountId, userId),
+    applied: (accountId, userId, hit) => groups.markPersonaApplied(accountId, userId, hit),
+  };
   accounts.onGroupChange = (id, change) => void groups.onChange(id, change).catch((err) => app.log.error({ err }, "Lỗi ghi sự kiện nhóm"));
   // Vừa kết nối: đối chiếu để bắt người vào/rời lúc app tắt (chờ chút cho kết nối ổn định).
   accounts.onConnected = (id) => void setTimeout(() => void groups.reconcile(id).catch(() => undefined), 10_000).unref();
@@ -245,7 +379,119 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (deps.dataDir) mktRunner.start();
     app.addHook("onClose", async () => mktRunner.stop());
     registerMktRoutes(app, { store: mktStore, runner: mktRunner, fetch: deps.mktFetch });
+    crm = new CrmService({
+      db: deps.db,
+      box: deps.box,
+      cred: () => {
+        const s = mktStore.secret<{ apiKey?: string; shopId?: string }>("pancake");
+        const conn = mktStore.connection("pancake");
+        if (!s?.apiKey || !s.shopId || conn.status === "off") return null;
+        const rules = (conn.meta.rules as LeadRules | undefined) ?? DEFAULT_RULES;
+        return { apiKey: s.apiKey, shopId: s.shopId, contactTable: rules.contactTable, workshopTable: rules.workshopTable };
+      },
+      fetch: deps.mktFetch,
+      log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+    });
+    if (deps.dataDir) crm.start();
+    const crmRef = crm;
+    // Nối CRM → Zalo theo số: Zalo tìm số của lead ra tài khoản Zalo, có trần mỗi nick mỗi ngày.
+    zaloMatcher = new ZaloMatcher({
+      db: deps.db,
+      box: deps.box,
+      accountIds: () => accounts.list().map((a) => a.id),
+      account: (id) => {
+        try {
+          const svc = accounts.get(id);
+          return { isConnected: () => svc.isConnected(), usersByPhones: (p) => svc.channel.usersByPhones(p) };
+        } catch {
+          return undefined;
+        }
+      },
+      notify: (id, text) => assistant.notify(id, "error", text),
+      log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+    });
+    const matcherRef = zaloMatcher;
+    if (deps.dataDir) zaloMatcher.start();
+    app.addHook("onClose", async () => {
+      crmRef.stop();
+      matcherRef.stop();
+    });
   }
+  registerCrmRoutes(app, {
+    accounts,
+    crm: () => crm,
+    matcher: () => zaloMatcher,
+    careNote: (id, threadId) => {
+      const p = careStore.get(id, threadId);
+      return p ? [p.needs && `Nhu cầu: ${p.needs}`, p.summary && `Đã trao đổi: ${p.summary}`].filter(Boolean).join("\n") : "";
+    },
+  });
+  // Khách vừa để lại số điện thoại mà CRM chưa có (và chưa lưu): báo chủ một lần cho mỗi số.
+  replier.onCustomerMessage = (id, e) => {
+    if (!crm?.available() || e.threadType !== "user" || !e.text) return;
+    const phones = phonesIn(e.text);
+    if (!phones.length) return;
+    const svc = accounts.get(id);
+    const conv = svc.inbox.conversation(e.threadId);
+    if (!conv || (conv as { crm_phone_noticed?: string }).crm_phone_noticed === phones[0]) return;
+    deps.db.prepare("UPDATE conversations SET crm_phone_noticed = ? WHERE account_id = ? AND thread_id = ?").run(phones[0]!, id, e.threadId);
+    if (crm.matches(phones).length || crm.saved(id, e.threadId).length) return;
+    const text = `${conv.name || e.displayName || "Khách"} vừa để lại số ${phones[0]}, chưa có trong CRM. Mở hội thoại, mục "Khách trong CRM" để lưu.`;
+    assistant.notify(id, "draft", text, e.threadId);
+    ownerAlerts.alert(id, text);
+  };
+  const adminCommands = new AdminCommands({
+    admins,
+    profiles,
+    assistant,
+    reports,
+    account: (id) => accounts.replierAccount(id),
+    engine: engineOrNull,
+    threadsByPhone: (id, digits) => {
+      let p = digits;
+      if (p.startsWith("84") && p.length >= 11) p = `0${p.slice(2)}`;
+      const out = new Set<string>();
+      for (const r of deps.db.prepare("SELECT thread_id FROM crm_links WHERE account_id = ? AND phone = ?").all(id, p) as { thread_id: string }[]) out.add(r.thread_id);
+      for (const r of deps.db.prepare("SELECT user_id FROM contacts WHERE account_id = ? AND phone IN (?, ?)").all(id, p, `84${p.slice(1)}`) as { user_id: string }[]) out.add(r.user_id);
+      for (const r of deps.db.prepare("SELECT uid FROM crm_zalo WHERE account_id = ? AND phone_hash = ? AND uid <> ''").all(id, hashPhone(p)) as { uid: string }[]) out.add(r.uid);
+      return [...out];
+    },
+    customerBrief: (id, threadId) => {
+      const svc = accounts.get(id);
+      const conv = svc.inbox.conversation(threadId);
+      const p = careStore.get(id, threadId);
+      const last = svc.inbox
+        .messages(threadId, 6)
+        .filter((m) => m.text)
+        .map((m) => `${m.direction === "in" ? "Khách" : m.source === "ai" ? "Trợ lý" : "Bạn"}: ${m.text!.slice(0, 150)}`);
+      return [
+        `👤 ${conv?.name || "Khách"}`,
+        p?.stage && `Giai đoạn: ${p.stage}`,
+        p?.summary && `Đã trao đổi: ${p.summary}`,
+        p?.needs && `Nhu cầu: ${p.needs}`,
+        p?.status === "active" && p.nextAt ? `Chăm sóc tới: ${new Date(p.nextAt).toLocaleDateString("vi-VN")} (${p.goal})` : "",
+        crm?.note(id, threadId, svc.inbox, svc.contacts.phone(threadId)) ?? "",
+        last.length ? `Tin gần đây:\n${last.join("\n")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    },
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  replier.admin = adminCommands;
+  registerAdminRoutes(app, { accounts, admins, reports });
+
+  // ---------- Bản doanh nghiệp: nối máy này với công ty trên Supabase (tắt sẵn) ----------
+  const org = new OrgConnection({
+    settings,
+    version: deps.version ?? "",
+    deviceName: os.hostname(),
+    nicks: () => accounts.list().map((a) => ({ name: a.name, state: accounts.get(a.id).channel.getStatus().state })),
+    log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+  });
+  if (deps.dataDir) org.start();
+  app.addHook("onClose", async () => org.stop());
+  registerOrgRoutes(app, org);
   registerFeedbackRoutes(app, {
     url: deps.feedbackUrl ?? null,
     version: deps.version ?? "",
@@ -299,4 +545,31 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 function clean(v: string | undefined): string | undefined {
   const s = typeof v === "string" ? v.trim() : "";
   return s ? s : undefined;
+}
+
+/** Lời dặn thêm cho AI khi soạn tin lịch gửi: một tin, đúng chủ đề, không lặp các tin trước. */
+export function scheduleComposeRules(s: { targets: { threadType: string }[]; title: string }, previous: string[]): string {
+  const groups = s.targets.some((t) => t.threadType === "group");
+  const lines = [
+    "",
+    "",
+    "# Việc bây giờ: soạn tin gửi theo lịch",
+    "Chủ đặt lịch để mỗi lượt bạn viết MỘT tin nhắn Zalo MỚI theo chủ đề / yêu cầu ở tin của chủ bên dưới.",
+    groups ? "Tin gửi vào nhóm Zalo: nói với cả nhóm (gọi \"mọi người\" / \"cả nhà\"), không gọi tên riêng ai." : "Tin gửi cho từng người.",
+    "Chỉ trả về đúng nội dung tin nhắn: không lời dẫn, không markdown, không ngoặc kép bao quanh, không ghi chú cho chủ.",
+    "Ngắn gọn, tự nhiên, có ích. Thông tin sản phẩm, giá, lịch chỉ lấy từ tài liệu; không bịa số liệu, không hứa điều tài liệu không có.",
+    `Hôm nay: ${new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)} (giờ Việt Nam).`,
+  ];
+  if (previous.length) {
+    lines.push("", "Các tin đã gửi gần đây của lịch này — viết khác hẳn (ý mới, mở đầu khác), không lặp lại:");
+    for (const t of previous) lines.push(`<tin_cu>${t.slice(0, 800)}</tin_cu>`);
+  }
+  return lines.join("\n");
+}
+
+/** Bỏ ngoặc kép bao quanh / khối code mà AI đôi khi thêm vào. */
+export function cleanComposed(raw: string): string {
+  let t = raw.trim().replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "").trim();
+  if (/^["“].*["”]$/s.test(t)) t = t.slice(1, -1).trim();
+  return t.slice(0, 6000);
 }

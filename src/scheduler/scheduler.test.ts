@@ -117,6 +117,131 @@ describe("lưu lịch", () => {
   });
 });
 
+describe("tag tất cả và mức độ tin", () => {
+  it("lưu, sửa, nhân bản giữ nguyên; mức độ sai thì báo lỗi; lịch cũ mặc định thường, không tag", async () => {
+    const { store, runner } = setup();
+    const now = T("2026-11-10", "10:00");
+    const rec: Recurrence = { type: "once", date: "2026-11-10", time: "20:00" };
+    expect(() => store.create({ text: "x", imageIds: [], targets, recurrence: rec, urgency: 5 as never }, now)).toThrow(/Mức độ/);
+    const plain = store.create({ text: "x", imageIds: [], targets, recurrence: rec }, now);
+    expect(plain).toMatchObject({ mentionAll: false, urgency: 0 });
+    const s = store.create({ text: "Họp gấp 20h", imageIds: [], targets, recurrence: rec, mentionAll: true, urgency: 2 }, now);
+    expect(s).toMatchObject({ mentionAll: true, urgency: 2 });
+    expect(store.update(s.id, { text: "Họp 20h", imageIds: [], targets, recurrence: rec, mentionAll: true, urgency: 1 }, now)).toMatchObject({ urgency: 1, mentionAll: true });
+    expect(store.duplicate(s.id, now)).toMatchObject({ urgency: 1, mentionAll: true });
+    void runner;
+  });
+
+  it("bộ chạy chuyển cách gửi xuống nơi gửi, cả khi gửi lại", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cdn-sched-"));
+    const store = new ScheduleStore(openDb(":memory:"), dir);
+    const got: unknown[] = [];
+    let fail = true;
+    const runner = new ScheduleRunner(store, {
+      isConnected: () => true,
+      send: async (_a, t, _text, _img, opts) => {
+        got.push({ thread: t.threadId, ...opts });
+        if (fail && t.threadId === "u1") throw new Error("lỗi");
+      },
+    });
+    const s = store.create({ text: "Khẩn", imageIds: [], targets, recurrence: { type: "once", date: "2026-11-10", time: "20:00" }, mentionAll: true, urgency: 2 }, T("2026-11-10", "10:00"));
+    await runner.tick(T("2026-11-10", "20:00"));
+    expect(got).toEqual([
+      { thread: "g1", mentionAll: true, urgency: 2 },
+      { thread: "u1", mentionAll: true, urgency: 2 },
+    ]);
+    fail = false;
+    const failed = store.runs(s.id).find((r) => r.status === "failed")!;
+    await runner.retry(failed.id);
+    expect(got.at(-1)).toEqual({ thread: "u1", mentionAll: true, urgency: 2 });
+  });
+});
+
+describe("lịch AI soạn", () => {
+  const rec: Recurrence = { type: "daily", date: "2026-11-10", time: "08:00" };
+  const make = (composeImpl?: (prev: string[]) => Promise<string>) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cdn-sched-"));
+    const store = new ScheduleStore(openDb(":memory:"), dir);
+    const sent: { thread: string; text: string }[] = [];
+    const drafts: { thread: string; text: string }[] = [];
+    const prevs: string[][] = [];
+    let n = 0;
+    const runner = new ScheduleRunner(store, {
+      isConnected: () => true,
+      send: async (_a, t, text) => {
+        sent.push({ thread: t.threadId, text });
+      },
+    });
+    runner.setComposer({
+      compose: async (_s, prev) => {
+        prevs.push(prev);
+        return composeImpl ? composeImpl(prev) : `Mẹo số ${++n}`;
+      },
+      draft: async (_s, t, text) => {
+        drafts.push({ thread: t.threadId, text });
+      },
+    });
+    return { store, runner, sent, drafts, prevs };
+  };
+
+  it("kiểm đầu vào: cần chủ đề, không kèm ảnh; nội dung soạn sẵn không bắt buộc", () => {
+    const { store } = make();
+    const now = T("2026-11-10", "07:00");
+    expect(() => store.create({ text: "", imageIds: [], targets, recurrence: rec, aiMode: "draft", aiBrief: " " }, now)).toThrow(/chủ đề/);
+    const img = store.saveImage("a.jpg", crypto.randomBytes(50));
+    expect(() => store.create({ text: "", imageIds: [img.id], targets, recurrence: rec, aiMode: "auto", aiBrief: "mẹo" }, now)).toThrow(/ảnh/);
+    expect(() => store.create({ text: "", imageIds: [], targets, recurrence: rec, aiMode: "lung tung" as never, aiBrief: "x" }, now)).toThrow(/Cách soạn/);
+    const s = store.create({ text: "", imageIds: [], targets, recurrence: rec, aiMode: "draft", aiBrief: "Mẹo chốt sale", aiProfileId: 3 }, now);
+    expect(s).toMatchObject({ aiMode: "draft", aiBrief: "Mẹo chốt sale", aiProfileId: 3 });
+    // Chuyển về tự soạn thì bỏ chủ đề.
+    expect(store.update(s.id, { text: "Chào", imageIds: [], targets, recurrence: rec, aiMode: "off", aiBrief: "còn sót" }, now)).toMatchObject({ aiMode: "off", aiBrief: "" });
+  });
+
+  it("chờ duyệt: mỗi lượt AI viết MỘT tin cho mọi hội thoại, đưa vào hàng duyệt, lượt sau nhớ tin cũ để không lặp", async () => {
+    const { store, runner, sent, drafts, prevs } = make();
+    const s = store.create({ text: "", imageIds: [], targets, recurrence: rec, aiMode: "draft", aiBrief: "Mẹo chốt sale" }, T("2026-11-10", "07:00"));
+    await runner.tick(T("2026-11-10", "08:00"));
+    expect(sent).toHaveLength(0);
+    expect(drafts).toEqual([
+      { thread: "g1", text: "Mẹo số 1" },
+      { thread: "u1", text: "Mẹo số 1" },
+    ]);
+    expect(store.runs(s.id).map((r) => [r.status, r.text])).toEqual([
+      ["drafted", "Mẹo số 1"],
+      ["drafted", "Mẹo số 1"],
+    ]);
+    await runner.tick(T("2026-11-11", "08:00"));
+    expect(prevs).toEqual([[], ["Mẹo số 1"]]);
+    expect(drafts.at(-1)!.text).toBe("Mẹo số 2");
+  });
+
+  it("tự gửi: gửi đúng tin AI viết; AI lỗi thì ghi lỗi cho mọi hội thoại, không gửi gì; gửi lại thì viết mới", async () => {
+    let fail = true;
+    const { store, runner, sent } = make(async () => {
+      if (fail) throw new Error("hết lượt");
+      return "Tin mới";
+    });
+    const s = store.create({ text: "", imageIds: [], targets, recurrence: rec, aiMode: "auto", aiBrief: "Mẹo" }, T("2026-11-10", "07:00"));
+    await runner.tick(T("2026-11-10", "08:00"));
+    expect(sent).toHaveLength(0);
+    const runs = store.runs(s.id);
+    expect(runs.map((r) => r.status)).toEqual(["failed", "failed"]);
+    expect(runs[0]!.error).toMatch(/AI không soạn được: hết lượt/);
+    fail = false;
+    await runner.retry(runs[0]!.id);
+    expect(sent).toEqual([{ thread: runs[0]!.threadId, text: "Tin mới" }]);
+  });
+
+  it("chưa có mô hình AI thì báo rõ", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cdn-sched-"));
+    const store = new ScheduleStore(openDb(":memory:"), dir);
+    const runner = new ScheduleRunner(store, { isConnected: () => true, send: async () => undefined });
+    const s = store.create({ text: "", imageIds: [], targets, recurrence: rec, aiMode: "auto", aiBrief: "Mẹo" }, T("2026-11-10", "07:00"));
+    await runner.tick(T("2026-11-10", "08:00"));
+    expect(store.runs(s.id)[0]!.error).toMatch(/mô hình AI/);
+  });
+});
+
 describe("bộ chạy lịch", () => {
   it("đến giờ thì gửi mọi hội thoại, lịch một lần chuyển Hoàn tất", async () => {
     const { store, runner, sent } = setup();

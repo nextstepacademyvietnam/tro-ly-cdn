@@ -138,7 +138,8 @@ export function leadDaily(contact: Row[], workshop: Row[], rules: LeadRules): Ma
   return days;
 }
 
-async function walk(f: Fetch, shop: string, table: string, key: string): Promise<Row[]> {
+/** Đi hết một bảng CRM (API bỏ qua mọi bộ lọc nên phải đọc cả bảng). Bộ tra CRM của Hộp thư cũng dùng. */
+export async function walk(f: Fetch, shop: string, table: string, key: string): Promise<Row[]> {
   const rows: Row[] = [];
   const seen = new Set<string>();
   let cursor = "";

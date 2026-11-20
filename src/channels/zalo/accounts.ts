@@ -1,6 +1,7 @@
 import type { DB } from "../../server/db.js";
 import type { Settings } from "../../server/settings.js";
 import type { ScheduleTarget } from "../../scheduler/store.js";
+import type { SendOptions } from "../../scheduler/runner.js";
 import type { Replier, ReplierAccount } from "../../core/replier.js";
 import { ZaloService } from "./service.js";
 import type { GroupChange } from "./groupEvents.js";
@@ -71,7 +72,7 @@ export class AccountManager {
       isConnected: () => svc.isConnected(),
       labels: () => svc.channel.labels(),
       groupName: (threadId) => svc.channel.groupName(threadId),
-      sendText: (threadId, type, text) => svc.channel.sendText(threadId, type, text),
+      sendText: (threadId, type, text, opts) => svc.channel.sendText(threadId, type, text, opts),
       setLabel: (threadId, type, target, exclusive) => svc.channel.setLabel(threadId, type, target, exclusive),
       salutation: (userId) => svc.contacts.salutation(userId),
     };
@@ -95,6 +96,7 @@ export class AccountManager {
       genders: (ids) => svc.contacts.ensure(ids),
       sendMention: (groupId, text, mentions) => ch.sendMention(groupId, text, mentions),
       sendText: (userId, text) => ch.sendText(userId, "user", text),
+      sendFriendRequest: (userId, message) => ch.sendFriendRequest(userId, message),
       sendImages: (threadId, type, paths) => ch.sendImages(threadId, type, paths),
       recordOutbound: (threadId, type, text, msgId, name) => svc.inbox.recordOutbound(threadId, type, text, "ai", msgId, Date.now(), "welcome", name),
     };
@@ -182,7 +184,7 @@ export class AccountManager {
     return this.services.get(accountId)?.isConnected() ?? false;
   }
 
-  send(accountId: number, target: ScheduleTarget, text: string, imagePaths: string[]): Promise<void> {
-    return this.get(accountId).send(target, text, imagePaths);
+  send(accountId: number, target: ScheduleTarget, text: string, imagePaths: string[], opts?: SendOptions): Promise<void> {
+    return this.get(accountId).send(target, text, imagePaths, opts);
   }
 }

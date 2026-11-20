@@ -148,6 +148,47 @@ export function ConnectionsPage() {
   );
 }
 
+interface MatchProgress {
+  available: boolean;
+  priorityTotal?: number;
+  priorityChecked?: number;
+  total?: number;
+  checked?: number;
+  withZalo?: number;
+  today?: number;
+  perDay?: number;
+  pausedUntil?: number;
+  lastError?: string;
+}
+
+/** Thẻ Pancake: tiến độ tìm tài khoản Zalo theo số điện thoại của lead (nick Zalo đang chọn). */
+function ZaloMatchProgress() {
+  const [p, setP] = useState<MatchProgress | null>(null);
+  useEffect(() => {
+    api<MatchProgress>("/api/crm-zalo-progress")
+      .then(setP)
+      .catch(() => undefined);
+  }, []);
+  if (!p?.available) return null;
+  const pct = p.priorityTotal ? Math.round(((p.priorityChecked ?? 0) / p.priorityTotal) * 100) : 0;
+  return (
+    <div className="mkt-match">
+      <div className="mkt-match-t">
+        Nối với Zalo theo số: {p.priorityChecked?.toLocaleString("vi-VN")} / {p.priorityTotal?.toLocaleString("vi-VN")} khách đang theo ({pct}%),{" "}
+        <b>{p.withZalo?.toLocaleString("vi-VN")}</b> người có Zalo
+      </div>
+      <div className="mkt-match-bar" aria-hidden>
+        <i style={{ width: `${pct}%` }} />
+      </div>
+      <div className="muted small">
+        {p.pausedUntil
+          ? `Zalo tạm chưa cho tìm thêm, thử lại lúc ${timeAndDay(p.pausedUntil)}${p.lastError ? ` (${p.lastError})` : ""}.`
+          : `Hôm nay đã tìm ${p.today}/${p.perDay} số. Zalo chỉ cho tìm ít số mỗi giờ nên app đi rất chậm; xong khách đang theo thì tìm dần lead cũ (${p.checked?.toLocaleString("vi-VN")} / ${p.total?.toLocaleString("vi-VN")}).`}
+      </div>
+    </div>
+  );
+}
+
 function ConnCard({ c, onConnect, onRefresh, onDisconnect }: { c: Conn; onConnect: () => void; onRefresh: () => void; onDisconnect: () => void }) {
   const badge =
     c.status === "ok" ? <span className="badge mkt-badge ok">Đã nối</span> : c.status === "error" ? <span className="badge mkt-badge bad">Lỗi</span> : <span className="badge mkt-badge off">{c.available ? "Chưa nối" : "Sắp có"}</span>;
@@ -170,6 +211,7 @@ function ConnCard({ c, onConnect, onRefresh, onDisconnect }: { c: Conn; onConnec
         </div>
       </div>
       {c.status === "error" && <div className="mkt-err-box">{c.error}</div>}
+      {c.kind === "pancake" && c.status !== "off" && <ZaloMatchProgress />}
       <div className="row">
         {!c.available ? null : c.status === "off" ? (
           <button type="button" className="primary" onClick={onConnect}>

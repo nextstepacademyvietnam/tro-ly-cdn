@@ -29,7 +29,7 @@ export interface Contact {
 }
 
 /** Hỏi Zalo hồ sơ nhiều người (tên + giới tính). Ai không đọc được thì vắng mặt trong kết quả. */
-export type ProfileFetcher = (ids: string[]) => Promise<Map<string, { name: string; gender: Gender }>>;
+export type ProfileFetcher = (ids: string[]) => Promise<Map<string, { name: string; gender: Gender; phone?: string }>>;
 
 const REFRESH_MS = 30 * 86_400_000;
 
@@ -42,6 +42,12 @@ export class ContactStore {
     private readonly accountId: number,
     private readonly fetchProfiles?: ProfileFetcher,
   ) {}
+
+  /** Số điện thoại trong hồ sơ Zalo (chỉ có khi khách là bạn bè hoặc cho xem số); "" nếu không có. */
+  phone(userId: string): string {
+    const r = this.db.prepare("SELECT phone FROM contacts WHERE account_id = ? AND user_id = ?").get(this.accountId, userId) as { phone: string } | undefined;
+    return r?.phone ?? "";
+  }
 
   get(userId: string): Contact | undefined {
     const r = this.db
@@ -97,16 +103,17 @@ export class ContactStore {
       try {
         const got = await this.fetchProfiles(need);
         const upsert = this.db.prepare(
-          `INSERT INTO contacts (account_id, user_id, name, gender, gender_source, fetched_at) VALUES (?, ?, ?, ?, 'zalo', ?)
+          `INSERT INTO contacts (account_id, user_id, name, gender, gender_source, fetched_at, phone) VALUES (?, ?, ?, ?, 'zalo', ?, ?)
            ON CONFLICT(account_id, user_id) DO UPDATE SET
              name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE contacts.name END,
+             phone = CASE WHEN excluded.phone <> '' THEN excluded.phone ELSE contacts.phone END,
              gender = CASE WHEN contacts.gender_source = 'chu' THEN contacts.gender ELSE excluded.gender END,
              gender_source = CASE WHEN contacts.gender_source = 'chu' THEN 'chu' ELSE 'zalo' END,
              fetched_at = excluded.fetched_at`,
         );
-        for (const [id, p] of got) upsert.run(this.accountId, id, p.name, p.gender, now);
+        for (const [id, p] of got) upsert.run(this.accountId, id, p.name, p.gender, now, p.phone ?? "");
         // Zalo không trả hồ sơ (bị ẩn, tài khoản đã xoá): ghi "chưa rõ" để không hỏi lại mỗi tin, 30 ngày sau thử lại.
-        for (const id of need) if (!got.has(id)) upsert.run(this.accountId, id, "", "", now);
+        for (const id of need) if (!got.has(id)) upsert.run(this.accountId, id, "", "", now, "");
       } catch {
         /* giới tính chỉ để xưng hô cho hay hơn; không có thì gọi "bạn" */
       } finally {

@@ -5,6 +5,7 @@ import {
   type Bucket,
   type EventRow,
   type WelcomeConfig,
+  FRIEND_MESSAGE_MAX,
   afterQuiet,
   computeStats,
   diffMembers,
@@ -25,6 +26,8 @@ export interface GroupChannel {
   genders?(ids: string[]): Promise<Map<string, string>>;
   sendMention(groupId: string, text: string, mentions: { pos: number; uid: string; len: number }[]): Promise<string | null>;
   sendText(userId: string, text: string): Promise<string[]>;
+  /** Gửi lời mời kết bạn kèm lời nhắn. Không có thì bỏ qua tuỳ chọn kết bạn. */
+  sendFriendRequest?(userId: string, message: string): Promise<void>;
   sendImages(threadId: string, type: "user" | "group", paths: string[]): Promise<string[]>;
   recordOutbound(threadId: string, type: "user" | "group", text: string, msgId: string | null, name?: string): void;
 }
@@ -46,6 +49,15 @@ export interface TrackedGroup {
   tracked_at: number;
   reconciled_at: number;
   welcome: string;
+  /** Tính cách gắn cho thành viên khi họ nhắn riêng (null = không). */
+  profile_id: number | null;
+}
+
+/** Thành viên nhóm nhắn riêng → tính cách của nhóm đó (nhóm vào gần nhất nếu ở nhiều nhóm). */
+export interface GroupPersonaHit {
+  profileId: number;
+  groupId: string;
+  groupName: string;
 }
 
 export interface WelcomeRow {
@@ -66,6 +78,8 @@ type Member = { id: string; name: string; actorName?: string };
 const LATE_MS = 6 * 3_600_000;
 export const TICK_MS = 15_000;
 export const RECONCILE_EVERY_MS = 6 * 3_600_000;
+/** Người vào lúc mất kết nối vẫn được chào nếu lần kiểm tra trước của nhóm cách đây không quá 24 giờ. */
+export const DIFF_WELCOME_WINDOW_MS = 24 * 3_600_000;
 
 /**
  * Theo dõi nhóm Zalo: ghi ai vào/rời (sự kiện tức thời + đối chiếu danh sách định kỳ),
@@ -74,6 +88,7 @@ export const RECONCILE_EVERY_MS = 6 * 3_600_000;
 export class GroupTracker {
   private timer: NodeJS.Timeout | null = null;
   private reconcileTimer: NodeJS.Timeout | null = null;
+  private readonly reconciling = new Map<string, Promise<{ joined: number; left: number }[]>>();
   private ticking = false;
   /** Chủ / phó nhóm theo từng nhóm, để không chào họ. */
   private readonly admins = new Map<string, Set<string>>();
@@ -128,6 +143,42 @@ export class GroupTracker {
   }
 
   /** Thôi theo dõi: xoá luôn số liệu và hàng đợi lời chào của nhóm. */
+  // ---------- Tính cách theo nhóm ----------
+
+  /** Chọn tính cách cho thành viên nhóm khi họ nhắn riêng (null = tắt). */
+  setPersona(accountId: number, groupId: string, profileId: number | null) {
+    if (!this.group(accountId, groupId)) throw new Error("Nhóm chưa được theo dõi");
+    this.db.prepare("UPDATE tracked_groups SET profile_id = ? WHERE account_id = ? AND group_id = ?").run(profileId, accountId, groupId);
+  }
+
+  /**
+   * Người này đang ở một nhóm có chọn tính cách, và app chưa từng gắn nhãn tự động cho họ → tính cách của nhóm
+   * (ở nhiều nhóm thì nhóm họ vào gần nhất). Đã gắn một lần rồi thì null: chủ gỡ nhãn thì không gắn lại.
+   */
+  personaForMember(accountId: number, userId: string): GroupPersonaHit | null {
+    if (this.db.prepare("SELECT 1 FROM group_persona_applied WHERE account_id = ? AND thread_id = ?").get(accountId, userId)) return null;
+    const r = this.db
+      .prepare(
+        `SELECT g.profile_id, g.group_id, g.name FROM tracked_groups g
+         JOIN group_members m ON m.account_id = g.account_id AND m.group_id = g.group_id
+         WHERE g.account_id = ? AND m.user_id = ? AND m.present = 1 AND g.profile_id IS NOT NULL
+         ORDER BY COALESCE(m.joined_at, m.first_seen_at) DESC LIMIT 1`,
+      )
+      .get(accountId, userId) as { profile_id: number; group_id: string; name: string } | undefined;
+    return r ? { profileId: Number(r.profile_id), groupId: r.group_id, groupName: r.name } : null;
+  }
+
+  markPersonaApplied(accountId: number, userId: string, hit: GroupPersonaHit, now = Date.now()) {
+    this.db
+      .prepare("INSERT OR REPLACE INTO group_persona_applied (account_id, thread_id, profile_id, group_id, at) VALUES (?, ?, ?, ?, ?)")
+      .run(accountId, userId, hit.profileId, hit.groupId, now);
+  }
+
+  /** Số người app đã tự gắn nhãn tính cách qua nhóm này. */
+  personaAppliedCount(accountId: number, groupId: string): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM group_persona_applied WHERE account_id = ? AND group_id = ?").get(accountId, groupId) as { n: number }).n;
+  }
+
   untrack(accountId: number, groupId: string) {
     this.db.prepare("DELETE FROM tracked_groups WHERE account_id = ? AND group_id = ?").run(accountId, groupId);
     this.admins.delete(`${accountId}:${groupId}`);
@@ -210,10 +261,22 @@ export class GroupTracker {
   }
 
   /**
-   * Đối chiếu danh sách (lúc bật app, định kỳ, hoặc bấm tay). Ai vào/rời lúc app tắt được ghi
-   * với via = "diff" và giờ là lúc phát hiện. Không chào những người này (không rõ họ vào lúc nào).
+   * Đối chiếu danh sách (lúc bật app, sau khi nối lại Zalo, định kỳ, hoặc bấm tay). Ai vào/rời lúc app tắt
+   * hay mất kết nối được ghi với via = "diff" và giờ là lúc phát hiện. Người vào được chào nếu lần kiểm tra
+   * trước của nhóm cách đây không quá DIFF_WELCOME_WINDOW_MS (họ mới vào gần đây); xa hơn thì không chào
+   * vì có thể họ đã ở nhóm từ lâu.
+   * Mỗi tài khoản chỉ một lượt chạy một lúc: hai lượt song song cùng thấy một người mới và ghi trùng sự kiện.
    */
-  async reconcile(accountId: number, groupId?: string, now = Date.now()): Promise<{ joined: number; left: number }[]> {
+  reconcile(accountId: number, groupId?: string, now = Date.now()): Promise<{ joined: number; left: number }[]> {
+    const key = `${accountId}:${groupId ?? "*"}`;
+    const running = this.reconciling.get(key);
+    if (running) return running;
+    const p = this.doReconcile(accountId, groupId, now).finally(() => this.reconciling.delete(key));
+    this.reconciling.set(key, p);
+    return p;
+  }
+
+  private async doReconcile(accountId: number, groupId: string | undefined, now: number): Promise<{ joined: number; left: number }[]> {
     const ch = this.deps.channel(accountId);
     if (!ch?.isConnected()) return [];
     const groups = groupId ? [this.group(accountId, groupId)].filter(Boolean) as TrackedGroup[] : this.tracked(accountId);
@@ -245,6 +308,9 @@ export class GroupTracker {
         } catch (err) {
           this.db.exec("ROLLBACK");
           throw err;
+        }
+        if (d.joined.length && g.reconciled_at && now - g.reconciled_at <= DIFF_WELCOME_WINDOW_MS) {
+          this.queueWelcome(accountId, g.group_id, d.joined.map((id) => ({ id, name: names.get(id) ?? "" })), now);
         }
         out.push({ joined: d.joined.length, left: d.left.length });
       } catch (err) {
@@ -404,15 +470,41 @@ export class GroupTracker {
         ch.recordOutbound(w.group_id, "group", text, id, g.name);
       } else {
         const m = members[0]!;
-        if (images.length) await ch.sendImages(m.id, "user", images);
-        const ids = await ch.sendText(m.id, text);
-        ch.recordOutbound(m.id, "user", text, ids[0] ?? null, m.name);
+        let messageError = "";
+        try {
+          if (images.length) await ch.sendImages(m.id, "user", images);
+          const ids = await ch.sendText(m.id, text);
+          ch.recordOutbound(m.id, "user", text, ids[0] ?? null, m.name);
+        } catch (err) {
+          messageError = (err as Error).message;
+        }
+        // Lời mời kết bạn gửi cả khi tin chào bị chặn (người chặn tin người lạ vẫn thấy lời mời).
+        const friend = cfg.private.friendRequest ? await this.sendFriendRequest(ch, m, cfg, g, members) : "";
+        if (messageError) {
+          this.finish(w.id, "failed", now, text, [messageError, friend].filter(Boolean).join(" · "));
+          this.deps.log?.("Không gửi được lời chào", { id: w.id, err: messageError });
+        } else {
+          this.finish(w.id, "sent", now, text, friend);
+        }
+        return;
       }
       this.finish(w.id, "sent", now, text);
     } catch (err) {
       // Người chặn tin người lạ, Zalo từ chối…: ghi lại, không thử lại liên tục.
       this.finish(w.id, "failed", now, text, (err as Error).message);
       this.deps.log?.("Không gửi được lời chào", { id: w.id, err: (err as Error).message });
+    }
+  }
+
+  /** Gửi lời mời kết bạn; trả câu ghi vào nhật ký gửi. Lỗi (đã là bạn, Zalo từ chối…) không làm hỏng lời chào. */
+  private async sendFriendRequest(ch: GroupChannel, m: Member & { gender?: string }, cfg: WelcomeConfig, g: TrackedGroup, members: (Member & { gender?: string })[]): Promise<string> {
+    if (!ch.sendFriendRequest) return "";
+    const { text } = renderWelcome(cfg.private.friendMessage, { members: [m], groupName: g.name, memberCount: g.member_count, adderName: members[0]?.actorName ?? "" }, false);
+    try {
+      await ch.sendFriendRequest(m.id, text.slice(0, FRIEND_MESSAGE_MAX));
+      return "Đã gửi lời mời kết bạn";
+    } catch (err) {
+      return `Lời mời kết bạn lỗi: ${(err as Error).message}`;
     }
   }
 

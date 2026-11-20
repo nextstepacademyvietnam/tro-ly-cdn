@@ -74,6 +74,8 @@ Luật cứng:
 | **Mọi người khác** | Quyền do nhãn quyết định (A3) |
 | **Hệ thống Zalo** | Thiệp sinh nhật, thông báo kết bạn, tin thu hồi… nhận diện theo cấu trúc tin, không theo chữ |
 
+**Admin** (chủ chọn trong app, theo mã Zalo) nhắn riêng cho nick bot để ra lệnh; chính nick bot ra lệnh trong My Documents khi mở đầu bằng `bot` hoặc `/`. Lệnh được làm: thêm thông tin thời điểm / hỏi đáp, tạm dừng / chạy lại, bật tắt chăm sóc, xem số liệu, tóm tắt khách, gắn nhãn. Không có lệnh nào gửi tin cho khách hay xoá dữ liệu. Mỗi lệnh có trả lời và hoàn tác được. Chat với admin không bao giờ vào luồng trả lời khách.
+
 Tên hiển thị, nội dung tin, câu "tôi là chủ", "sếp bảo em"… không bao giờ đổi được vai hay quyền. Lệnh mẫu trong My Documents: `tạm dừng trợ lý`, `trợ lý chạy lại`, `duyệt hết`, `tóm tắt hôm nay`.
 
 ### A3b. Ma trận quyền
@@ -148,6 +150,8 @@ Tin trợ lý tự mở lời (follow-up, chúc sinh nhật, nhắc lịch, chi�
 
 Thiệp sinh nhật Zalo chỉ là *gợi ý* cho chủ, không tự gửi lời chúc nếu chủ chưa bật chiến dịch sinh nhật.
 
+**Chăm sóc khách chủ động** (bật theo tính cách): trợ lý chỉ *soạn nháp* tin chăm sóc theo kế hoạch từng khách, chủ duyệt từng tin mới gửi — đó là bước duyệt của điều 1. Chỉ chat riêng có nhãn tính cách bật chăm sóc; bỏ qua khách có dấu Không nhắn chủ động, khách đang chờ người thật, khách vừa nói chuyện trong 12 giờ; không soạn trong 21:30–07:30 và không quá giới hạn tin chăm sóc mỗi ngày của tính cách. Tin chăm sóc gửi đi vẫn qua trần an toàn ở điều 4.
+
 ### A9. Các chốt chặn luôn bật
 
 - Bỏ qua tin do chính trợ lý gửi, tránh tự trả lời mình.
@@ -159,7 +163,13 @@ Thiệp sinh nhật Zalo chỉ là *gợi ý* cho chủ, không tự gửi lời
 ### A10. Dữ liệu
 
 - Tin nhắn và hộp thư chỉ lưu trên máy chạy app.
-- AI chỉ nhận: khung chung, mô tả và tài liệu của **đúng vai trò** đang áp dụng, và **lịch sử của đúng hội thoại đang trả lời** (tối đa 30 tin gần nhất). Không đưa tin của hội thoại khác vào.
+- Khi **trả lời khách**, AI chỉ nhận: khung chung, mô tả và tài liệu của **đúng vai trò** đang áp dụng, và **lịch sử của đúng hội thoại đang trả lời** (tối đa 30 tin gần nhất). Không đưa tin của hội thoại khác vào.
+- Khi trả lời chat riêng, AI nhận thêm **điều đã biết về đúng khách đó**: hồ sơ chăm sóc (nếu có) và kết quả tra Pancake CRM theo số điện thoại của khách (trạng thái, sản phẩm đã chốt…), kèm lời dặn không tự xác nhận thanh toán, giữ chỗ hay chốt. Tên người phụ trách và ghi chú nội bộ trong CRM không đưa cho AI.
+- Tra CRM: app giữ chỉ mục trên máy, số điện thoại **băm SHA-256** để tra, kèm bản **mã hoá** (khoá của app) để nhờ Zalo tìm số đó ra tài khoản Zalo. App dùng chính nick của chủ để tìm, tối đa 10 số mỗi giờ và 40 số mỗi ngày cho mỗi nick, mỗi lần 5 số, nghỉ 21:30–07:30, Zalo nhắc thì nghỉ 1, 2, 4 rồi tối đa 7 ngày; chỉ đọc, không nhắn hay kết bạn với ai. App chỉ **ghi** vào CRM khi chủ bấm Lưu vào CRM (tạo hoặc cập nhật một bản ghi, chủ xem nội dung trước); trợ lý không tự ghi.
+- Báo chủ qua Zalo: app nhắn vào "Cloud của tôi" của chính nick đó (chỉ chủ thấy), không nhắn ai khác.
+- Hai việc nền chỉ ra **gợi ý cho chủ**, không bao giờ nhắn khách:
+  - **Gợi ý gắn nhãn**: AI đọc tối đa 20 tin gần nhất của một khách chat riêng *chưa có nhãn trợ lý*, cùng mô tả ngắn các tính cách, để đoán khách thuộc tính cách nào hay "không" (người nhà, nội bộ, đối tác). Mỗi khách xét một lần; khách nhắn lại sau một ngày mới xét lại.
+  - **Học hỏi đáp**: AI đọc các lượt *khách hỏi → chủ trả lời* (chủ tự gõ, hoặc chủ sửa nháp trợ lý) trong 30 ngày, ở chat riêng chưa có nhãn hoặc có nhãn của chính tính cách đó; bỏ nhóm và hội thoại "Không bot". AI được dặn bỏ tên, số điện thoại, số tài khoản. Kết quả là gợi ý chờ chủ duyệt.
 - Phiên đăng nhập Zalo và API key được mã hoá.
 
 ---
@@ -282,6 +292,14 @@ Chủ **không** viết được gì để nới lỏng Phần A. Nếu mô tả
 | A6 chủ tiếp quản | `Inbox.lastOwnerAt()` < 30 phút; chủ nhắn → nháp đang chờ bị thay |
 | A7 từ chối nhận tin | `conversations.no_proactive`; nhóm "trợ lý dừng lại" → gắn nhãn tắt |
 | A8 nhắn chủ động | `SendPacer` + lịch gửi (chủ đặt tay) |
+| Khách chờ lâu, nhờ trợ lý soạn | `Inbox.waitingReplies()` + `core/waiting.ts` (30 phút, bỏ tin khép chuyện); `Replier.draftFor()` luôn ra nháp |
+| Trần tự gửi (chặn bot nhắn qua lại) | `Replier.autoCapReason()`: 6 tin/giờ, 15 tin/24 giờ mỗi hội thoại → nháp |
+| Báo chủ qua Zalo | `server/ownerAlerts.ts`, cột `accounts.owner_alerts` |
+| Lệnh admin qua Zalo | `admin/commands.ts` (`AdminCommands.route` gọi từ `Replier.onInbound`), bảng `admins` |
+| Báo cáo định kỳ | `admin/reports.ts`, bảng `reports` |
+| Tra CRM | `crm/service.ts` (bảng `crm_index`, `crm_links`, `contacts.phone`) |
+| Nối CRM → Zalo theo số | `crm/zaloMatch.ts` (bảng `crm_zalo`, `getMultiUsersByPhones`), trần ở đầu file |
+| A10 gợi ý nhãn, học hỏi đáp | `assist/service.ts` (một lần gọi AI mỗi phút), bảng `faq_suggestions`, `drafts.original_text` |
 | A9 chốt chặn | `MessageBatcher` gom 7 giây, bỏ tin cũ > 10 phút, lỗi → im + báo chủ |
 | Lệnh chủ, dừng khẩn cấp | `isOwnerCommandChannel()`; `accounts.paused`; nút Tạm dừng toàn bộ |
 

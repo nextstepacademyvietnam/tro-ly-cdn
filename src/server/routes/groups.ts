@@ -42,6 +42,8 @@ export function registerGroupRoutes(app: FastifyInstance, groups: GroupTracker) 
           joins7d: week.filter((e) => e.kind === "join").length,
           leaves7d: week.filter((e) => e.kind !== "join").length,
           welcomeOn: groups.welcome(req.accountId, g.group_id).enabled,
+          profileId: g.profile_id ?? null,
+          personaApplied: groups.personaAppliedCount(req.accountId, g.group_id),
         };
       }),
     };
@@ -96,6 +98,17 @@ export function registerGroupRoutes(app: FastifyInstance, groups: GroupTracker) 
   app.get<{ Params: { id: string } }>("/api/groups/:id/members", async (req) => {
     need(req.accountId, req.params.id);
     return { members: groups.members(req.accountId, req.params.id) };
+  });
+
+  // Tính cách cho thành viên nhóm khi họ nhắn riêng.
+  app.put<{ Params: { id: string }; Body: { profileId?: number | null } }>("/api/groups/:id/persona", async (req) => {
+    const id = req.body?.profileId;
+    try {
+      groups.setPersona(req.accountId, req.params.id, id === null || id === undefined ? null : Number(id));
+    } catch (err) {
+      throw fail(err, 404);
+    }
+    return { ok: true };
   });
 
   app.get<{ Params: { id: string } }>("/api/groups/:id/welcome", async (req) => {

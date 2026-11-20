@@ -25,6 +25,8 @@ import { type LabelData, applyLabelChange, hasLabel, labelSummaries } from "./la
 const LABELS_TTL_MS = 60_000;
 const TYPING_QUIET_MS = 4_000;
 const SEND_TIMEOUT_MS = 20_000;
+/** Chữ hiện trong tin khi tag tất cả thành viên nhóm. */
+export const MENTION_ALL_TEXT = "@All";
 const MAX_QR_RETRIES = 3;
 
 export type ZaloState = "logged_out" | "waiting_qr" | "scanned" | "connecting" | "connected" | "reconnecting" | "error";
@@ -66,13 +68,21 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   private api: API | null = null;
   private status: ZaloStatus = { state: "logged_out", since: Date.now() };
   private readonly sentIds = new Set<string>();
+  /** Số lệnh gửi đang chạy theo hội thoại, và nội dung app vừa gửi (2 phút) — để nhận ra tin Zalo báo lại là của app. */
+  private readonly inflight = new Map<string, number>();
+  private readonly recentTexts = new Map<string, { text: string; at: number }[]>();
   private readonly typingUntil = new Map<string, number>();
   private readonly groupNames = new Map<string, string>();
   private readonly pacer = new SendPacer();
   private loginAbort: (() => unknown) | null = null;
   private lockFile: string;
+  private lockBeat: NodeJS.Timeout | null = null;
   private readonly credentialsKey: string;
   private labelsCache: { at: number; data: unknown } | null = null;
+  /** Tự nối lại khi mất kết nối (rớt mạng, máy ngủ): thư viện Zalo chỉ tự thử lại với vài mã đóng của máy chủ. */
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempt = 0;
+  private stopped = false;
 
   constructor(private readonly settings: Settings, dataDir: string, readonly accountId = 1) {
     super();
@@ -152,7 +162,36 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       .finally(() => (this.loginAbort = null));
   }
 
+  /** Chờ trước lần tự nối lại thứ n: 10 giây, 30 giây, 1, 2 phút, rồi 5 phút một lần. */
+  static reconnectDelay(attempt: number): number {
+    return [10_000, 30_000, 60_000, 120_000][attempt] ?? 300_000;
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer || this.stopped) return;
+    const wait = ZaloChannel.reconnectDelay(this.reconnectAttempt++);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.stopped || this.api || this.status.state === "logged_out" || this.status.state === "connected") return;
+      this.connect().catch(() => {
+        // Còn lỗi (mạng chưa có, Zalo chưa nhận): giữ thông báo dễ hiểu và hẹn lần sau.
+        if (this.stopped || this.status.state === "logged_out") return;
+        const next = Math.round(ZaloChannel.reconnectDelay(this.reconnectAttempt) / 60_000) || 1;
+        this.setStatus({ state: "error", error: `Mất kết nối Zalo. App tự thử lại sau ${next} phút, hoặc bấm Kết nối lại.` });
+        this.scheduleReconnect();
+      });
+    }, wait);
+    this.reconnectTimer.unref?.();
+  }
+
+  private cancelReconnect() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
   async connect(): Promise<void> {
+    this.cancelReconnect();
+    this.stopped = false;
     const creds = this.settings.getSecret<Credentials>(this.credentialsKey);
     if (!creds) {
       this.setStatus({ state: "logged_out" });
@@ -193,8 +232,14 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       if (isFriendAcceptanceNotice(raw as never)) return;
       const event = canonicalizeSelfThread(normalizeMessage(raw as never), ownId);
       if (!event.threadId) return;
-      const sentByApp = event.isSelf && this.sentIds.has(event.messageId);
-      this.emit("inbound", event, { sentByApp });
+      const byApp = () => event.isSelf && (this.sentIds.has(event.messageId) || this.sentTextRecently(event.threadId, event.text));
+      // Zalo có thể báo lại tin app vừa gửi TRƯỚC khi lệnh gửi trả về mã tin (từng gặp: tin chào riêng bị ghi là
+      // chủ tự gõ, trợ lý im 30 phút vì "chủ vừa nhắn tay"). Còn lệnh gửi đang chạy ở hội thoại này thì chờ xong mới xét.
+      if (event.isSelf && !byApp() && (this.inflight.get(event.threadId) ?? 0) > 0) {
+        void this.waitIdle(event.threadId, 30_000).then(() => this.emit("inbound", event, { sentByApp: byApp() }));
+        return;
+      }
+      this.emit("inbound", event, { sentByApp: byApp() });
     });
     api.listener.on("group_event", (raw) => {
       const change = normalizeGroupEvent(raw);
@@ -221,9 +266,15 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
           ownName,
           error: "Zalo Web đang được mở ở nơi khác nên phiên của trợ lý bị ngắt. Đóng Zalo Web kia rồi bấm Kết nối lại.",
         });
-      } else if (this.status.state !== "logged_out") {
-        this.setStatus({ state: "error", ownId, ownName, error: "Mất kết nối Zalo. Bấm Kết nối lại." });
+      } else if (this.status.state !== "logged_out" && !this.stopped) {
+        // Rớt mạng / máy ngủ dậy: tự nối lại, không bắt chủ phải bấm. Tin và người vào nhóm trong lúc mất
+        // kết nối thì lượt đối chiếu nhóm sau khi nối lại sẽ bắt bù.
+        this.setStatus({ state: "reconnecting", ownId, ownName, error: "Mất kết nối Zalo, đang tự nối lại…" });
+        this.scheduleReconnect();
       }
+    });
+    api.listener.on("connected", () => {
+      this.reconnectAttempt = 0;
     });
 
     api.listener.start({ retryOnClose: true });
@@ -240,6 +291,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   async logout(): Promise<void> {
+    this.cancelReconnect();
     this.loginAbort?.();
     this.setStatus({ state: "logged_out" });
     this.stopListener();
@@ -248,6 +300,8 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
+    this.cancelReconnect();
     this.stopListener();
     this.releaseLock();
   }
@@ -311,20 +365,45 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
    * Hồ sơ nhiều người (tên + giới tính) qua getUserInfo, theo lô 50. getGroupMembersInfo không có giới tính
    * nên phải hỏi riêng. Lô nào lỗi thì bỏ qua; người không có trong kết quả là Zalo không trả hồ sơ.
    */
-  async userProfiles(ids: string[]): Promise<Map<string, { name: string; gender: Gender }>> {
+  async userProfiles(ids: string[]): Promise<Map<string, { name: string; gender: Gender; phone: string }>> {
     const api = this.requireApi();
-    const out = new Map<string, { name: string; gender: Gender }>();
+    const out = new Map<string, { name: string; gender: Gender; phone: string }>();
     for (const batch of chunked(ids, 50)) {
       try {
         const res = (await withTimeout(api.getUserInfo(batch), 15_000)) as {
-          changed_profiles?: Record<string, { displayName?: string; zaloName?: string; gender?: unknown }>;
+          changed_profiles?: Record<string, { displayName?: string; zaloName?: string; gender?: unknown; phoneNumber?: string }>;
         };
         for (const [id, p] of Object.entries(res?.changed_profiles ?? {})) {
-          out.set(String(id).split("_")[0]!, { name: String(p?.displayName || p?.zaloName || ""), gender: genderFromZalo(p?.gender) });
+          out.set(String(id).split("_")[0]!, {
+            name: String(p?.displayName || p?.zaloName || ""),
+            gender: genderFromZalo(p?.gender),
+            // Zalo chỉ trả số khi là bạn bè hoặc người đó cho xem số; dùng để tra khách trong CRM.
+            phone: String(p?.phoneNumber ?? "").replace(/\D/g, ""),
+          });
         }
       } catch {
         /* giới tính chỉ để xưng hô */
       }
+    }
+    return out;
+  }
+
+  /**
+   * Tìm tài khoản Zalo theo nhiều số điện thoại (0xxxxxxxxx) một lần gọi. Số không có Zalo hoặc người đó tắt
+   * "cho tìm theo số" thì vắng trong kết quả. Lỗi (kể cả Zalo báo tìm quá nhiều) ném ra cho người gọi xử lý.
+   */
+  async usersByPhones(phones: string[]): Promise<Map<string, { uid: string; name: string }>> {
+    const api = this.requireApi();
+    const res = (await withTimeout(api.getMultiUsersByPhones(phones), 20_000, "Tìm theo số")) as Record<
+      string,
+      { uid?: string; zalo_name?: string; display_name?: string } | null
+    >;
+    const out = new Map<string, { uid: string; name: string }>();
+    for (const [key, u] of Object.entries(res ?? {})) {
+      if (!u?.uid) continue;
+      let d = key.replace(/\D/g, "");
+      if (d.startsWith("84") && d.length >= 11) d = `0${d.slice(2)}`;
+      out.set(d, { uid: String(u.uid), name: String(u.display_name || u.zalo_name || "") });
     }
     return out;
   }
@@ -352,7 +431,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     await sleep(decision.waitMs);
     await api.sendTypingEvent(groupId, ZThreadType.Group).catch(() => undefined);
     await sleep(typingDelayMs(text));
-    const res = (await withTimeout(api.sendMessage({ msg: text, mentions }, groupId, ZThreadType.Group), SEND_TIMEOUT_MS, "Gửi tin")) as {
+    const res = (await this.tracked(groupId, text, () => withTimeout(api.sendMessage({ msg: text, mentions }, groupId, ZThreadType.Group), SEND_TIMEOUT_MS, "Gửi tin"))) as {
       message?: { msgId?: string | number } | null;
     };
     const id = String(res?.message?.msgId ?? "");
@@ -361,14 +440,44 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   /**
+   * Gửi lời mời kết bạn kèm lời nhắn (Zalo cắt ở 150 ký tự). Đã là bạn hoặc Zalo từ chối thì ném lỗi
+   * kèm mã của Zalo để ghi vào nhật ký gửi.
+   */
+  async sendFriendRequest(userId: string, message: string): Promise<void> {
+    const api = this.requireApi();
+    try {
+      await api.sendFriendRequest(message.slice(0, 150), userId);
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      throw new Error(`${(err as Error).message}${code ? ` (mã ${code})` : ""}`);
+    }
+  }
+
+  /**
    * Gửi tin chữ. Chờ người kia ngừng gõ, hiện "đang soạn tin", giữ nhịp an toàn.
    * Trả về id các tin đã gửi (tin dài được chia nhỏ).
    */
-  async sendText(threadId: string, threadType: ThreadType, text: string, opts: { proactive?: boolean } = {}): Promise<string[]> {
+  async sendText(
+    threadId: string,
+    threadType: ThreadType,
+    text: string,
+    opts: { proactive?: boolean; urgency?: 0 | 1 | 2; mentionAll?: boolean } = {},
+  ): Promise<string[]> {
     const api = this.requireApi();
     const zType = threadType === "group" ? ZThreadType.Group : ZThreadType.User;
     const ids: string[] = [];
-    for (const part of splitLongText(text)) {
+    const parts = splitLongText(text);
+    if (parts.length === 0) parts.push("");
+    for (const [i, raw] of parts.entries()) {
+      // Tag tất cả: "@All" ở đầu tin đầu tiên, Zalo báo cho mọi thành viên nhóm.
+      const tagAll = i === 0 && opts.mentionAll && threadType === "group";
+      const part = tagAll ? `${MENTION_ALL_TEXT} ${raw}`.trimEnd() : raw;
+      if (!part.trim()) continue;
+      const content = {
+        msg: part,
+        ...(tagAll ? { mentions: [{ pos: 0, uid: "-1", len: MENTION_ALL_TEXT.length }] } : {}),
+        ...(opts.urgency ? { urgency: opts.urgency } : {}),
+      };
       const decision = this.pacer.reserve(Date.now(), opts.proactive);
       if (!decision.ok) throw new Error(decision.reason);
       await sleep(decision.waitMs);
@@ -377,7 +486,7 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
       }
       await api.sendTypingEvent(threadId, zType).catch(() => undefined);
       await sleep(typingDelayMs(part));
-      const res = (await withTimeout(api.sendMessage({ msg: part }, threadId, zType), SEND_TIMEOUT_MS, "Gửi tin")) as {
+      const res = (await this.tracked(threadId, part, () => withTimeout(api.sendMessage(content, threadId, zType), SEND_TIMEOUT_MS, "Gửi tin"))) as {
         message?: { msgId?: string | number } | null;
       };
       const id = String(res?.message?.msgId ?? "");
@@ -450,21 +559,50 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   /** Gửi một hoặc nhiều ảnh (không kèm chữ). Tin lịch hẹn đi qua đây rồi mới gửi chữ. */
-  async sendImages(threadId: string, threadType: ThreadType, imagePaths: string[]): Promise<string[]> {
+  async sendImages(threadId: string, threadType: ThreadType, imagePaths: string[], opts: { urgency?: 0 | 1 | 2 } = {}): Promise<string[]> {
     if (imagePaths.length === 0) return [];
     const api = this.requireApi();
     const zType = threadType === "group" ? ZThreadType.Group : ZThreadType.User;
     const decision = this.pacer.reserve(Date.now(), false);
     if (!decision.ok) throw new Error(decision.reason);
     await sleep(decision.waitMs);
-    const res = (await withTimeout(
-      api.sendMessage({ msg: "", attachments: imagePaths }, threadId, zType),
-      SEND_TIMEOUT_MS * 3,
-      "Gửi ảnh",
+    const res = (await this.tracked(threadId, null, () =>
+      withTimeout(api.sendMessage({ msg: "", attachments: imagePaths, ...(opts.urgency ? { urgency: opts.urgency } : {}) }, threadId, zType), SEND_TIMEOUT_MS * 3, "Gửi ảnh"),
     )) as { attachment?: { msgId?: string | number }[] };
     const ids = (res?.attachment ?? []).map((a) => String(a?.msgId ?? "")).filter(Boolean);
     for (const id of ids) this.sentIds.add(id);
     return ids;
+  }
+
+  /** Chạy một lệnh gửi, đánh dấu hội thoại đang có tin app gửi đi (nhớ nội dung trước khi gửi). */
+  private async tracked<T>(threadId: string, text: string | null, fn: () => Promise<T>): Promise<T> {
+    const now = Date.now();
+    if (text) {
+      const list = (this.recentTexts.get(threadId) ?? []).filter((x) => now - x.at < RECENT_TEXT_MS);
+      list.push({ text: text.trim(), at: now });
+      this.recentTexts.set(threadId, list.slice(-20));
+    }
+    this.inflight.set(threadId, (this.inflight.get(threadId) ?? 0) + 1);
+    try {
+      return await fn();
+    } finally {
+      const n = (this.inflight.get(threadId) ?? 1) - 1;
+      if (n > 0) this.inflight.set(threadId, n);
+      else this.inflight.delete(threadId);
+    }
+  }
+
+  /** App vừa gửi đúng nội dung này vào hội thoại trong 2 phút qua. */
+  private sentTextRecently(threadId: string, text: string | null): boolean {
+    if (!text) return false;
+    const t = text.trim();
+    const now = Date.now();
+    return (this.recentTexts.get(threadId) ?? []).some((x) => now - x.at < RECENT_TEXT_MS && x.text === t);
+  }
+
+  private async waitIdle(threadId: string, maxMs: number) {
+    const until = Date.now() + maxMs;
+    while ((this.inflight.get(threadId) ?? 0) > 0 && Date.now() < until) await sleep(200);
   }
 
   isConnected(): boolean {
@@ -472,10 +610,16 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
   }
 
   // ---- Khoá: một tài khoản Zalo chỉ một trợ lý chạy trên máy này ----
+  /**
+   * Khoá "một nick chỉ một tiến trình": file ghi PID, người giữ ghi lại file mỗi 30 giây.
+   * Khoá không được ghi lại quá 2 phút là khoá bỏ quên (app bị tắt ngang) — kể cả khi Windows đã cấp lại đúng số
+   * PID đó cho một chương trình khác (từng gặp: PID cũ thành conhost, app mới không kết nối được Zalo).
+   */
   private acquireLock() {
     try {
       const pid = Number(fs.readFileSync(this.lockFile, "utf8"));
-      if (pid && pid !== process.pid && processAlive(pid)) {
+      const fresh = Date.now() - fs.statSync(this.lockFile).mtimeMs < LOCK_STALE_MS;
+      if (pid && pid !== process.pid && fresh && processAlive(pid)) {
         throw new Error(`Một tiến trình Trợ lý CDN khác (PID ${pid}) đang giữ kết nối Zalo trên máy này.`);
       }
     } catch (err) {
@@ -485,9 +629,21 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     }
     fs.mkdirSync(path.dirname(this.lockFile), { recursive: true });
     fs.writeFileSync(this.lockFile, String(process.pid));
+    if (!this.lockBeat) {
+      this.lockBeat = setInterval(() => {
+        try {
+          if (Number(fs.readFileSync(this.lockFile, "utf8")) === process.pid) fs.writeFileSync(this.lockFile, String(process.pid));
+        } catch {
+          /* khoá đã bị gỡ */
+        }
+      }, 30_000);
+      this.lockBeat.unref();
+    }
   }
 
   private releaseLock() {
+    if (this.lockBeat) clearInterval(this.lockBeat);
+    this.lockBeat = null;
     try {
       if (Number(fs.readFileSync(this.lockFile, "utf8")) === process.pid) fs.rmSync(this.lockFile);
     } catch {
@@ -495,6 +651,12 @@ export class ZaloChannel extends EventEmitter<ZaloChannelEvents> {
     }
   }
 }
+
+/** Nhớ nội dung app vừa gửi ngần này để nhận ra tin Zalo báo lại. */
+const RECENT_TEXT_MS = 120_000;
+
+/** Khoá Zalo không được người giữ ghi lại quá ngần này thì coi là bỏ quên. */
+export const LOCK_STALE_MS = 120_000;
 
 export async function readImageMetadata(filePath: string): Promise<{ width: number; height: number; size: number } | null> {
   try {

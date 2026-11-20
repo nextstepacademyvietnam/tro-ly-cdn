@@ -4,11 +4,15 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
+  Clock,
   Hand,
   Info,
   ListFilter,
+  HeartHandshake,
+  CalendarClock,
   PencilLine,
   Search,
+  Sparkles,
   Tag,
   UserRound,
   WifiOff,
@@ -16,6 +20,9 @@ import {
 } from "lucide-react";
 import { type Account, type BotState, type Draft, type Profile, api } from "../api";
 import { ScheduleForm } from "../schedules/ScheduleForm";
+import { CareSection } from "../care/CareSection";
+import { CrmSection } from "../crm/CrmSection";
+import { CareList } from "./CarePage";
 import { ScheduleSidebar } from "../schedules/SchedulePanels";
 import { Avatar, Popover, fullDate, shortTime, timeAndDay, waitLevel, waitText } from "../ui";
 
@@ -34,9 +41,15 @@ interface Conversation {
   handoff_reason: string;
   handoff_until: number;
   no_proactive: number;
+  /** Nhóm: 1 = trợ lý tự trả lời câu hỏi, không cần ai tag. */
+  group_auto?: number;
   /** Chỉ chat riêng: "nam" | "nu" | "" và nguồn ("zalo" theo hồ sơ, "chu" bạn sửa tay). */
   gender: "nam" | "nu" | "";
   genderSource: "zalo" | "chu" | "";
+  /** Khách nhắn mà chưa ai trả lời quá 30 phút: mốc khách bắt đầu chờ (0 = không chờ). */
+  waitingReplySince: number;
+  /** Trợ lý gợi ý gắn nhãn tính cách (chỉ khi chưa có nhãn). */
+  suggestion: { profileId: number; reason: string } | null;
 }
 interface Message {
   id: number;
@@ -76,7 +89,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 const kindText = (kind: string) => `[${KIND_LABEL[kind] ?? "Tin đặc biệt"}]`;
 
-const needsAction = (c: Conversation) => c.pendingDrafts > 0 || c.waitingHuman;
+const needsAction = (c: Conversation) => c.pendingDrafts > 0 || c.waitingHuman || c.waitingReplySince > 0;
 const displayName = (c: Conversation) => c.name || `${c.thread_type === "group" ? "Nhóm" : "Người dùng"} ${c.thread_id.slice(-4)}`;
 
 /** Huy hiệu việc: nháp chờ duyệt hoặc chờ người thật, kèm đã chờ bao lâu. */
@@ -99,6 +112,15 @@ function TaskBadge({ c, now }: { c: Conversation; now: number }) {
       </span>
     );
   }
+  if (c.waitingReplySince > 0) {
+    const waited = now - c.waitingReplySince;
+    return (
+      <span className="badge" data-level={waitLevel(waited) || "mid"}>
+        <Clock aria-hidden />
+        Khách chờ · {waitText(waited)}
+      </span>
+    );
+  }
   return null;
 }
 
@@ -116,15 +138,21 @@ function TagBadge({ bot, profiles, offTag }: { bot: BotState; profiles: Profile[
   );
 }
 
+export type InboxMode = "can" | "care" | "all";
+
 export function InboxPage({
   account,
   mode,
   onModeChange,
   onGoAccounts,
+  initialThread,
+  careDue,
 }: {
   account?: Account;
-  mode: "can" | "all";
-  onModeChange: (m: "can" | "all") => void;
+  initialThread?: string | null;
+  mode: InboxMode;
+  onModeChange: (m: InboxMode) => void;
+  careDue?: number;
   onGoAccounts: () => void;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -132,7 +160,7 @@ export function InboxPage({
   const [loadError, setLoadError] = useState(false);
   const [labelsAvailable, setLabelsAvailable] = useState(true);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialThread ?? null);
   const [showUser, setShowUser] = useState(true);
   const [showGroup, setShowGroup] = useState(true);
   const [botFilter, setBotFilter] = useState<BotFilter>("all");
@@ -185,8 +213,9 @@ export function InboxPage({
   // Màn rộng: mở sẵn hội thoại đầu danh sách, như wireframe.
   useEffect(() => {
     const shown = selected && visible.some((c) => c.thread_id === selected);
+    if (mode === "care") return;
     if (!shown && visible.length && window.matchMedia("(min-width: 1024px)").matches) setSelected(visible[0]!.thread_id);
-  }, [selected, visible]);
+  }, [selected, visible, mode]);
 
   const toggle = (id: string) =>
     setChecked((s) => {
@@ -218,7 +247,7 @@ export function InboxPage({
     }
   };
 
-  const current = visible.find((c) => c.thread_id === selected);
+  const current = (mode === "care" ? conversations : visible).find((c) => c.thread_id === selected);
   const checkedList = conversations.filter((c) => checked.has(c.thread_id));
   const filterCount = (showUser && showGroup ? 0 : 1) + (botFilter === "all" ? 0 : 1) + (genderFilter === "all" ? 0 : 1);
 
@@ -329,10 +358,14 @@ export function InboxPage({
             <button type="button" role="tab" aria-selected={mode === "can"} onClick={() => onModeChange("can")}>
               Cần xử lý {actionCount > 0 && <span className="num">{actionCount}</span>}
             </button>
+            <button type="button" role="tab" aria-selected={mode === "care"} onClick={() => onModeChange("care")}>
+              Chăm sóc {careDue ? <span className="num">{careDue}</span> : null}
+            </button>
             <button type="button" role="tab" aria-selected={mode === "all"} onClick={() => onModeChange("all")}>
               Tất cả
             </button>
           </div>
+          {mode !== "care" && (
           <div className="ib-search-row">
             <label className="ib-search">
               <Search aria-hidden />
@@ -409,7 +442,18 @@ export function InboxPage({
               )}
             </Popover>
           </div>
+          )}
         </div>
+        {mode === "care" ? (
+          <CareList
+            selected={selected}
+            onOpen={(id) => {
+              setSelected(id);
+              setInfoOpen(false);
+            }}
+          />
+        ) : (
+          <>
         {!labelsAvailable && <div className="notice warn ib-msg">Chưa đọc được nhãn Zalo (Zalo chưa kết nối).</div>}
         {notice && <div className="notice ok ib-msg">{notice}</div>}
         {assignError && <div className="notice bad ib-msg">{assignError}</div>}
@@ -433,6 +477,8 @@ export function InboxPage({
           </div>
         )}
         <ul className={checked.size ? "ib-rows picking" : "ib-rows"}>{body}</ul>
+          </>
+        )}
       </div>
 
       {/* Cột hội thoại + cột thông tin */}
@@ -448,6 +494,7 @@ export function InboxPage({
             onChanged={load}
             onBack={() => setSelected(null)}
             onInfo={() => setInfoOpen(true)}
+            onAssign={(v) => assign([current.thread_id], v)}
           />
           <div className={infoOpen ? "scrim open ib-scrim" : "scrim ib-scrim"} onClick={() => setInfoOpen(false)} />
           <aside className={infoOpen ? "ib-info open" : "ib-info"} aria-label="Thông tin hội thoại">
@@ -465,13 +512,36 @@ export function InboxPage({
                 block
               />
               <p className="info-hint">Đổi ở đây hay trên điện thoại đều được, hai bên luôn khớp.</p>
+              {current.thread_type === "group" && (
+                <GroupAuto
+                  key={`ga-${current.thread_id}`}
+                  threadId={current.thread_id}
+                  on={Boolean(current.group_auto)}
+                  hasBot={current.bot.kind === "profile"}
+                  onChanged={(v) => setConversations((list) => list.map((c) => (c.thread_id === current.thread_id ? { ...c, group_auto: v ? 1 : 0 } : c)))}
+                />
+              )}
+              {current.bot.kind === "none" && current.suggestion && (
+                <LabelSuggestion conversation={current} profiles={profiles} onAssign={(v) => assign([current.thread_id], v)} onChanged={load} />
+              )}
             </div>
+            {current.thread_type === "user" && (
+              <CallAs
+                key={current.thread_id}
+                conversation={current}
+                onChanged={(gender, genderSource) =>
+                  setConversations((list) => list.map((c) => (c.thread_id === current.thread_id ? { ...c, gender, genderSource } : c)))
+                }
+              />
+            )}
+            {current.thread_type === "user" && <CareSection key={`care-${current.thread_id}`} threadId={current.thread_id} />}
+            {current.thread_type === "user" && <CrmSection key={`crm-${current.thread_id}`} threadId={current.thread_id} />}
             <ScheduleSidebar
               key={`s-${current.thread_id}`}
               target={{ threadId: current.thread_id, threadType: current.thread_type, name: current.name }}
             />
-            <div className="info-sec">
-              <div className="info-title">Khách</div>
+            <details className="info-sec info-more">
+              <summary className="info-title">Chi tiết hội thoại</summary>
               <dl className="info-dl">
                 <dt>Loại</dt>
                 <dd>{current.thread_type === "group" ? "Nhóm" : "Chat riêng"}</dd>
@@ -480,16 +550,7 @@ export function InboxPage({
                 <dt>Nhận tin chủ động</dt>
                 <dd>{current.no_proactive ? "Không" : "Có"}</dd>
               </dl>
-              {current.thread_type === "user" && (
-                <CallAs
-                  key={current.thread_id}
-                  conversation={current}
-                  onChanged={(gender, genderSource) =>
-                    setConversations((list) => list.map((c) => (c.thread_id === current.thread_id ? { ...c, gender, genderSource } : c)))
-                  }
-                />
-              )}
-            </div>
+            </details>
           </aside>
         </>
       ) : (
@@ -593,6 +654,7 @@ function Thread({
   onChanged,
   onBack,
   onInfo,
+  onAssign,
 }: {
   conversation: Conversation;
   profiles: Profile[];
@@ -602,6 +664,7 @@ function Thread({
   onChanged: () => void;
   onBack: () => void;
   onInfo: () => void;
+  onAssign: (v: LabelValue) => Promise<void>;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
@@ -701,6 +764,9 @@ function Thread({
             </div>
           </div>
         )}
+        {conversation.waitingReplySince > 0 && conversation.pendingDrafts === 0 && !conversation.waitingHuman && (
+          <WaitingCard conversation={conversation} profiles={profiles} now={now} onChanged={() => (load(), onChanged())} onAssign={onAssign} />
+        )}
         <DraftList threadId={id} canSend={canSend} now={now} onSent={() => (load(), onChanged())} pollKey={count} />
         {error && <div className="notice bad small">{error}</div>}
         <form className="compose-row" onSubmit={send}>
@@ -716,6 +782,198 @@ function Thread({
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+/** Tính cách dùng được cho chat riêng (có nhãn Zalo). */
+const privateProfiles = (profiles: Profile[]) => profiles.filter((p) => p.tag && p.applies !== "group");
+
+/**
+ * Khách nhắn mà chưa ai trả lời quá 30 phút: nhờ trợ lý soạn nháp (chọn tính cách nếu khách chưa có nhãn),
+ * gắn nhãn trợ lý gợi ý, hoặc đánh dấu không cần trả lời.
+ */
+function WaitingCard({
+  conversation,
+  profiles,
+  now,
+  onChanged,
+  onAssign,
+}: {
+  conversation: Conversation;
+  profiles: Profile[];
+  now: number;
+  onChanged: () => void;
+  onAssign: (v: LabelValue) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const id = encodeURIComponent(conversation.thread_id);
+  const waited = now - conversation.waitingReplySince;
+  const bot = conversation.bot;
+  const sug = conversation.suggestion ? profiles.find((p) => p.id === conversation.suggestion!.profileId) : undefined;
+  const usable = privateProfiles(profiles);
+  const run = async (what: string, fn: () => Promise<unknown>) => {
+    setBusy(what);
+    setError("");
+    try {
+      await fn();
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const draft = (profileId: number) => run("draft", () => api(`/api/zalo/conversations/${id}/ai-draft`, { body: { profileId } }));
+  const labelAndDraft = (profileId: number) =>
+    run("label", async () => {
+      await onAssign(profileId);
+      await api(`/api/zalo/conversations/${id}/ai-draft`, { body: { profileId } });
+    });
+  return (
+    <div className="task-card wait-card">
+      <div className="task-head">
+        <Clock aria-hidden />
+        Khách đang chờ trả lời ·{" "}
+        <span className="badge" data-level={waitLevel(waited) || "mid"}>
+          chờ {waitText(waited)}
+        </span>
+      </div>
+      <p className="small">
+        {bot.kind === "profile" ? (
+          `Trợ lý ${bot.name} chưa trả lời tin này (AI lỗi, hoặc thấy nên để bạn). Nhờ trợ lý soạn lại, hoặc bạn tự trả lời bên dưới.`
+        ) : sug ? (
+          <>
+            Trợ lý gợi ý gắn nhãn <b>🏷 {sug.tag}</b> ({sug.name})
+            {conversation.suggestion!.reason ? `: ${conversation.suggestion!.reason}` : ""}. Gắn rồi thì trợ lý lo luôn các tin sau.
+          </>
+        ) : (
+          "Khách chưa có nhãn trợ lý nên trợ lý chưa trả lời. Nhờ trợ lý soạn một lần, hoặc gắn nhãn để trợ lý lo luôn."
+        )}
+      </p>
+      <div className="task-actions">
+        {bot.kind === "profile" ? (
+          <button type="button" className="primary" disabled={!!busy} onClick={() => draft(bot.profileId)}>
+            {busy === "draft" ? "Đang soạn…" : "Nhờ trợ lý soạn"}
+          </button>
+        ) : sug ? (
+          <>
+            <button type="button" className="primary" disabled={!!busy} onClick={() => labelAndDraft(sug.id)}>
+              {busy === "label" ? "Đang gắn nhãn, soạn…" : `Gắn 🏷 ${sug.tag} và soạn`}
+            </button>
+            <button type="button" disabled={!!busy} onClick={() => draft(sug.id)}>
+              {busy === "draft" ? "Đang soạn…" : "Chỉ soạn lần này"}
+            </button>
+          </>
+        ) : usable.length ? (
+          <Popover
+            trigger={({ toggle }) => (
+              <button type="button" className="primary" disabled={!!busy} onClick={toggle}>
+                {busy === "draft" ? "Đang soạn…" : "Nhờ trợ lý soạn"}
+                <ChevronDown aria-hidden />
+              </button>
+            )}
+          >
+            {(close) => (
+              <>
+                <div className="menu-title">Soạn theo tính cách</div>
+                {usable.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="menu-item"
+                    onClick={() => {
+                      close();
+                      void draft(p.id);
+                    }}
+                  >
+                    <span className="menu-text">
+                      <span>{p.name}</span>
+                      <span className="menu-sub">Chỉ soạn nháp lần này, chưa gắn nhãn 🏷 {p.tag}</span>
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
+          </Popover>
+        ) : (
+          <span className="muted small">Chưa có tính cách nào có nhãn Zalo để trợ lý soạn.</span>
+        )}
+        <button type="button" className="ghost" disabled={!!busy} onClick={() => run("ok", () => api(`/api/zalo/conversations/${id}/no-reply`, { method: "POST" }))}>
+          Không cần trả lời
+        </button>
+      </div>
+      {error && <div className="notice bad small">{error}</div>}
+    </div>
+  );
+}
+
+/** Cột thông tin: trợ lý gợi ý gắn nhãn cho khách chưa có nhãn. */
+function LabelSuggestion({
+  conversation,
+  profiles,
+  onAssign,
+  onChanged,
+}: {
+  conversation: Conversation;
+  profiles: Profile[];
+  onAssign: (v: LabelValue) => Promise<void>;
+  onChanged: () => void;
+}) {
+  const sug = conversation.suggestion!;
+  const p = profiles.find((x) => x.id === sug.profileId);
+  if (!p) return null;
+  const id = encodeURIComponent(conversation.thread_id);
+  return (
+    <div className="sug-box">
+      <div className="sug-head">
+        <Sparkles aria-hidden />
+        <span>
+          Gợi ý: <b>🏷 {p.tag}</b> ({p.name})
+        </span>
+      </div>
+      {sug.reason && <p className="info-hint">{sug.reason}</p>}
+      <div className="sug-actions">
+        <button type="button" className="small-btn" onClick={() => void onAssign(p.id)}>
+          Gắn nhãn
+        </button>
+        <button type="button" className="small-btn ghost" onClick={() => api(`/api/zalo/conversations/${id}/suggestion/dismiss`, { method: "POST" }).then(onChanged)}>
+          Bỏ qua
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Nhóm: bật trợ lý tự trả lời câu hỏi (không cần tag). Mặc định chỉ trả lời khi được tag hoặc trả lời vào tin của trợ lý. */
+function GroupAuto({ threadId, on, hasBot, onChanged }: { threadId: string; on: boolean; hasBot: boolean; onChanged: (v: boolean) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const toggle = async (v: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/zalo/conversations/${encodeURIComponent(threadId)}/group-auto`, { method: "PUT", body: { on: v } });
+      onChanged(v);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="group-auto">
+      <label className="inline check">
+        <input type="checkbox" checked={on} disabled={busy} onChange={(e) => toggle(e.target.checked)} /> Tự trả lời câu hỏi trong nhóm
+      </label>
+      <p className="info-hint">
+        {on
+          ? "Trợ lý đọc mọi tin, chỉ trả lời câu hỏi chung mà tài liệu trả lời được. Chuyện trò, câu hỏi dành cho người khác hay chuyện tiền thì im lặng."
+          : "Đang tắt: trợ lý chỉ trả lời khi được tag, được trả lời vào tin, hoặc gọi bằng từ gọi (đặt ở trang Nhóm Zalo)."}
+      </p>
+      {on && !hasBot && <div className="notice warn small">Nhóm chưa gắn nhãn tính cách nên trợ lý chưa trả lời. Gắn nhãn ở ô trên.</div>}
+      {error && <div className="notice bad small">{error}</div>}
     </div>
   );
 }
@@ -756,10 +1014,13 @@ function DraftList({ threadId, canSend, now, onSent, pollKey }: { threadId: stri
         const waited = now - d.createdAt;
         const level = waitLevel(waited);
         return (
-          <div key={d.id} className="task-card">
+          <div key={d.id} className={d.origin === "care" || d.origin === "schedule" ? "task-card care-draft" : "task-card"}>
             <div className="task-head">
-              <PencilLine aria-hidden />
-              Trợ lý soạn nháp ·{" "}
+              {d.origin === "care" ? <HeartHandshake aria-hidden /> : d.origin === "schedule" ? <CalendarClock aria-hidden /> : <PencilLine aria-hidden />}
+              {d.origin === "care" ? "Tin chăm sóc chủ động" : d.origin === "schedule" ? "Tin lịch gửi do AI soạn" : "Trợ lý soạn nháp"}
+              {d.sendOpts?.mentionAll && " · @All"}
+              {d.sendOpts?.urgency === 1 && " · Quan trọng"}
+              {d.sendOpts?.urgency === 2 && " · Khẩn cấp"} ·{" "}
               <span className={level ? "badge" : "badge task"} data-level={level || undefined}>
                 chờ {waitText(waited)}
               </span>

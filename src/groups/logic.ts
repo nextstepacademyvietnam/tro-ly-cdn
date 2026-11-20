@@ -10,7 +10,18 @@ import { capitalize, salutationOf } from "../core/contacts.js";
 export interface WelcomeConfig {
   enabled: boolean;
   group: { enabled: boolean; templates: string[]; imageIds: number[]; batchSeconds: number };
-  private: { enabled: boolean; templates: string[]; imageIds: number[]; minDelayMin: number; maxDelayMin: number; perHour: number; perDay: number };
+  private: {
+    enabled: boolean;
+    templates: string[];
+    imageIds: number[];
+    minDelayMin: number;
+    maxDelayMin: number;
+    perHour: number;
+    perDay: number;
+    /** Gửi kèm lời mời kết bạn cho người mới (Zalo giới hạn lời nhắn kết bạn 150 ký tự). */
+    friendRequest: boolean;
+    friendMessage: string;
+  };
   /** Giờ yên lặng theo giờ Việt Nam, "HH:MM". Lời chào rơi vào khoảng này dồn sang lúc hết giờ yên lặng. */
   quietStart: string;
   quietEnd: string;
@@ -34,11 +45,16 @@ export const DEFAULT_WELCOME: WelcomeConfig = {
     maxDelayMin: 6,
     perHour: 10,
     perDay: 40,
+    friendRequest: false,
+    friendMessage: "Chào {xung_ho} {ten}, mình là trợ lý trong nhóm {ten_nhom}. Kết bạn để tiện hỗ trợ {xung_ho} nhé!",
   },
   quietStart: "21:30",
   quietEnd: "07:30",
   skipRejoinDays: 30,
 };
+
+/** Zalo cắt lời nhắn kèm lời mời kết bạn ở 150 ký tự. */
+export const FRIEND_MESSAGE_MAX = 150;
 
 const clampInt = (v: unknown, min: number, max: number, dflt: number) => {
   const n = Math.round(Number(v));
@@ -74,6 +90,8 @@ export function sanitizeWelcome(input: unknown): WelcomeConfig {
       maxDelayMin: Math.max(minDelay, clampInt(p.maxDelayMin, 0, 240, d.private.maxDelayMin)),
       perHour: clampInt(p.perHour, 1, 60, d.private.perHour),
       perDay: clampInt(p.perDay, 1, 300, d.private.perDay),
+      friendRequest: Boolean(p.friendRequest),
+      friendMessage: String(p.friendMessage ?? "").trim().slice(0, FRIEND_MESSAGE_MAX) || d.private.friendMessage,
     },
     quietStart: cleanTime(i.quietStart, d.quietStart),
     quietEnd: cleanTime(i.quietEnd, d.quietEnd),

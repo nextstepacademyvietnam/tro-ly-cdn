@@ -1,9 +1,10 @@
 import type { Inbox } from "../channels/zalo/inbox.js";
 import { type InboundEvent, MessageBatcher, type ThreadType, isOwnerCommandChannel } from "../channels/zalo/protocol.js";
 import type { ChatMessage, Engine } from "../engines/index.js";
-import type { AssistantStore } from "./assistantStore.js";
-import type { Profile, ProfileStore } from "./profiles.js";
-import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply } from "./replyPolicy.js";
+import type { AssistantStore, Draft } from "./assistantStore.js";
+import { type Profile, type ProfileStore, resolveProfile } from "./profiles.js";
+import { HANDOFF_MS, decide, fold, frameSystemPrompt, parseReply, DEFAULT_CALL_WORDS } from "./replyPolicy.js";
+import { DEFAULT_SEND_LIMITS, type SendLimits } from "./sendLimits.js";
 
 /** Những gì bộ trả lời cần từ một tài khoản Zalo (tách ra để test không cần Zalo thật). */
 export interface ReplierAccount {
@@ -14,7 +15,7 @@ export interface ReplierAccount {
   isConnected(): boolean;
   labels(): Promise<unknown[] | null>;
   groupName(threadId: string): Promise<string>;
-  sendText(threadId: string, type: ThreadType, text: string): Promise<string[]>;
+  sendText(threadId: string, type: ThreadType, text: string, opts?: { proactive?: boolean; urgency?: 0 | 1 | 2; mentionAll?: boolean }): Promise<string[]>;
   /** Ghi nhãn thật trong Zalo (null = gỡ các nhãn trong `exclusive`). */
   setLabel(threadId: string, type: ThreadType, target: string | null, exclusive: string[]): Promise<unknown>;
   /** Cách gọi một người (anh / chị / bạn) theo giới tính đã lưu. */
@@ -26,9 +27,22 @@ export interface ReplierOptions {
   batchMs?: number;
   now?: () => number;
   log?: (msg: string, extra?: object) => void;
+  /** Gọi sau khi một nháp được duyệt và gửi đi (bộ chăm sóc khách dùng để đếm lần chăm sóc). */
+  onDraftSent?: (draft: Draft) => void;
 }
 
 const HISTORY = 30;
+/** Trần tự gửi cho một hội thoại: quá ngần này tin trợ lý tự gửi trong 1 giờ / 24 giờ thì chuyển sang soạn nháp. */
+/** Mức mặc định (giữ để test cũ dùng); giá trị thật lấy theo nick qua `limits`. */
+export const AUTO_CAP_HOUR = DEFAULT_SEND_LIMITS.privateHour;
+export const AUTO_CAP_DAY = DEFAULT_SEND_LIMITS.privateDay;
+/**
+ * Nhóm: nhiều người hỏi nên trần tính theo TỪNG NGƯỜI (chặn hai bot nhắn qua lại, hay một người nhắn dồn),
+ * cộng trần chung cả nhóm cao hơn để nick không bị Zalo hạn chế.
+ */
+export const GROUP_CAP_PER_SENDER_HOUR = DEFAULT_SEND_LIMITS.groupPerSenderHour;
+export const GROUP_CAP_HOUR = DEFAULT_SEND_LIMITS.groupHour;
+export const GROUP_CAP_DAY = DEFAULT_SEND_LIMITS.groupDay;
 
 /**
  * AI trả lời khách. Mỗi lượt tin của khách đi qua: gom tin → luật hệ thống (replyPolicy.decide)
@@ -41,6 +55,44 @@ export class Replier {
   private readonly now: () => number;
   private readonly batchMs: number;
   private readonly log: (msg: string, extra?: object) => void;
+  /** Bộ chăm sóc khách gắn vào sau khi tạo (tránh vòng phụ thuộc lúc khởi tạo). */
+  onDraftSent: ((draft: Draft) => void) | null = null;
+  /**
+   * Tính cách theo nhóm Zalo (bộ theo dõi nhóm gắn vào): khách nhắn riêng là thành viên một nhóm có chọn tính cách
+   * và hội thoại chưa có nhãn trợ lý → trả tính cách đó để gắn nhãn; `applied` ghi lại đã gắn.
+   */
+  groupPersona: {
+    find(accountId: number, userId: string): { profileId: number; groupId: string; groupName: string } | null;
+    applied(accountId: number, userId: string, hit: { profileId: number; groupId: string; groupName: string }): void;
+  } | null = null;
+  /**
+   * Điều đã biết về khách (hồ sơ chăm sóc: giai đoạn, thông tin, đã trao đổi, nhu cầu) để trợ lý nhớ khách khi trả lời,
+   * không chỉ dựa vào 30 tin gần nhất. Bộ chăm sóc gắn vào; trả "" khi chưa có hồ sơ.
+   */
+  customerNote: ((accountId: number, threadId: string) => string) | null = null;
+  /**
+   * Lệnh admin qua Zalo: tin của admin (hoặc "Cloud của tôi" có tiền tố) đi thẳng tới bộ lệnh, không vào luồng
+   * trả lời khách. Gắn sau khi tạo.
+   */
+  admin: {
+    route(accountId: number, event: InboundEvent, ownId: string): { thread: string; text: string | null } | null;
+    handle(accountId: number, thread: string, text: string | null): Promise<void>;
+  } | null = null;
+  /** Mỗi tin khách vừa ghi vào hộp thư (VD bắt số điện thoại khách để lại để gợi ý lưu CRM). */
+  onCustomerMessage: ((accountId: number, event: InboundEvent) => void) | null = null;
+  /** Giới hạn tự gửi của tài khoản (chủ chỉnh được); không gắn thì dùng mặc định. */
+  limits: ((accountId: number) => SendLimits) | null = null;
+  private lim(accountId: number): SendLimits {
+    return this.limits?.(accountId) ?? DEFAULT_SEND_LIMITS;
+  }
+  /** Từ gọi trợ lý trong nhóm của tài khoản (VD "admin ơi"); không gắn thì dùng mặc định. */
+  callWords: ((accountId: number) => string[]) | null = null;
+  /** Lần cuối trợ lý trả lời từng người trong nhóm (`tài khoản:nhóm:người` → ms). Mất khi khởi động lại là chấp nhận được. */
+  private answered = new Map<string, number>();
+  /** Các lần trợ lý tự gửi trả lời từng người trong nhóm (`tài khoản:nhóm:người` → mốc ms), để tính trần theo người. */
+  private groupSends = new Map<string, number[]>();
+  /** Báo chủ ngoài app (VD Zalo "Cloud của tôi") khi có việc gấp. */
+  alertOwner: ((accountId: number, text: string, threadId: string) => void) | null = null;
 
   constructor(
     private readonly profiles: ProfileStore,
@@ -52,6 +104,7 @@ export class Replier {
     this.now = opts.now ?? Date.now;
     this.batchMs = opts.batchMs ?? 7_000;
     this.log = opts.log ?? (() => {});
+    this.onDraftSent = opts.onDraftSent ?? null;
   }
 
   /** Gọi sau khi tin đã được ghi vào hộp thư. */
@@ -59,6 +112,18 @@ export class Replier {
     if (sentByApp) return;
     const acc = this.account(accountId);
     if (!acc) return;
+    const cmd = this.admin?.route(accountId, event, acc.ownId());
+    if (cmd) {
+      void this.admin!.handle(accountId, cmd.thread, cmd.text);
+      return;
+    }
+    if (!event.isSelf) {
+      try {
+        this.onCustomerMessage?.(accountId, event);
+      } catch (err) {
+        this.log("Lỗi xử lý tin khách", { err: String(err) });
+      }
+    }
     if (event.isSelf) {
       if (isOwnerCommandChannel(event, acc.ownId(), false)) this.ownerCommand(acc, event);
       // Chủ tự trả lời → nháp đang chờ của hội thoại đó không còn đúng nữa.
@@ -96,6 +161,36 @@ export class Replier {
     return next;
   }
 
+  /**
+   * Khách nhắn riêng chưa có nhãn trợ lý, là thành viên nhóm có chọn tính cách → gắn nhãn Zalo thật của tính cách đó.
+   * Không đè nhãn có sẵn (kể cả "Không bot" hay gắn trên web); chỉ gắn khi đọc được nhãn Zalo. Trả true nếu đã gắn.
+   */
+  private async applyGroupPersona(
+    acc: ReplierAccount,
+    conv: NonNullable<ReturnType<Inbox["conversation"]>>,
+    event: InboundEvent,
+    profiles: Profile[],
+    labels: unknown[] | null,
+  ): Promise<boolean> {
+    if (!this.groupPersona || !labels || conv.thread_type !== "user" || event.isSelf) return false;
+    const offTag = this.profiles.offTag(acc.accountId);
+    if (resolveProfile(conv, profiles, labels, offTag).kind !== "none") return false;
+    const hit = this.groupPersona.find(acc.accountId, event.threadId);
+    if (!hit) return false;
+    const p = profiles.find((x) => x.id === hit.profileId);
+    if (!p?.tag || p.applies === "group") return false;
+    try {
+      await acc.setLabel(event.threadId, "user", p.tag, [...profiles.map((x) => x.tag).filter(Boolean), offTag]);
+    } catch (err) {
+      this.log("Không gắn được nhãn tính cách theo nhóm", { thread: event.threadId, err: (err as Error).message });
+      return false;
+    }
+    this.groupPersona.applied(acc.accountId, event.threadId, hit);
+    const who = conv.name || event.displayName || "Khách";
+    this.store.notify(acc.accountId, "draft", `${who} (thành viên nhóm "${hit.groupName}") nhắn riêng — đã gắn nhãn "${p.tag}" để trợ lý ${p.name} lo.`, event.threadId);
+    return true;
+  }
+
   /** Xử lý một lượt (đã gom). Công khai để test. */
   async process(accountId: number, event: InboundEvent): Promise<void> {
     const acc = this.account(accountId);
@@ -103,7 +198,8 @@ export class Replier {
     const conv = acc.inbox.conversation(event.threadId);
     if (!conv) return;
     const profiles = this.profiles.list(accountId);
-    const labels = await acc.labels();
+    let labels = await acc.labels();
+    if (await this.applyGroupPersona(acc, conv, event, profiles, labels)) labels = await acc.labels();
     const d = decide({
       event,
       conv,
@@ -114,6 +210,8 @@ export class Replier {
       ownId: acc.ownId(),
       lastOwnerAt: acc.inbox.lastOwnerAt(event.threadId),
       now: this.now(),
+      callWords: this.callWords?.(accountId) ?? DEFAULT_CALL_WORDS,
+      lastAnsweredSenderAt: this.answered.get(`${accountId}:${event.threadId}:${event.senderId}`) ?? 0,
     });
     const who = conv.name || event.displayName || event.threadId;
 
@@ -143,7 +241,7 @@ export class Replier {
         this.handoff(acc, event, who, d.reason);
         return;
       case "reply":
-        await this.reply(acc, event, d.profile, who);
+        await this.reply(acc, event, d.profile, who, Boolean(d.ambient));
     }
   }
 
@@ -151,7 +249,33 @@ export class Replier {
     acc.inbox.setHandoff(event.threadId, this.now() + HANDOFF_MS, reason);
     this.store.supersede(acc.accountId, event.threadId);
     const quote = event.text ? `: "${event.text.slice(0, 160)}"` : "";
-    this.store.notify(acc.accountId, "handoff", `${who} cần người thật (${reason})${quote}. Trợ lý dừng ở hội thoại này 24 giờ.`, event.threadId);
+    const text = `${who} cần người thật (${reason})${quote}. Trợ lý dừng ở hội thoại này 24 giờ.`;
+    this.store.notify(acc.accountId, "handoff", text, event.threadId);
+    this.alertOwner?.(acc.accountId, text, event.threadId);
+  }
+
+  /** Hội thoại đã chạm trần tự gửi (dấu hiệu hai bot nhắn qua lại, hoặc khách nhắn dồn): trả lý do, hoặc "". */
+  private autoCapReason(acc: ReplierAccount, threadId: string): string {
+    const now = this.now();
+    const hour = acc.inbox.aiSentSince(threadId, now - 3_600_000);
+    const l = this.lim(acc.accountId);
+    if (hour >= l.privateHour) return `trợ lý đã tự gửi ${hour} tin trong 1 giờ`;
+    const day = acc.inbox.aiSentSince(threadId, now - 24 * 3_600_000);
+    if (day >= l.privateDay) return `trợ lý đã tự gửi ${day} tin trong 24 giờ`;
+    return "";
+  }
+
+  /** Trần tự gửi trong nhóm: theo từng người hỏi, và chung cả nhóm. Trả lý do, hoặc "". */
+  private groupCapReason(acc: ReplierAccount, event: InboundEvent): string {
+    const now = this.now();
+    const mine = (this.groupSends.get(`${acc.accountId}:${event.threadId}:${event.senderId}`) ?? []).filter((t) => now - t < 3_600_000).length;
+    const l = this.lim(acc.accountId);
+    if (mine >= l.groupPerSenderHour) return `trợ lý đã trả lời ${event.displayName || "người này"} ${mine} tin trong 1 giờ`;
+    const hour = acc.inbox.aiSentSince(event.threadId, now - 3_600_000);
+    if (hour >= l.groupHour) return `trợ lý đã tự gửi ${hour} tin vào nhóm trong 1 giờ`;
+    const day = acc.inbox.aiSentSince(event.threadId, now - 24 * 3_600_000);
+    if (day >= l.groupDay) return `trợ lý đã tự gửi ${day} tin vào nhóm trong 24 giờ`;
+    return "";
   }
 
   private history(acc: ReplierAccount, threadId: string, isGroup: boolean): ChatMessage[] {
@@ -168,39 +292,93 @@ export class Replier {
     return out;
   }
 
-  private async reply(acc: ReplierAccount, event: InboundEvent, profile: Profile, who: string) {
+  /** Khung chung + tính cách + lịch sử hội thoại → câu AI trả về (chưa tách thẻ). Lỗi AI ném ra ngoài. */
+  private async generate(
+    acc: ReplierAccount,
+    engine: Engine,
+    t: { threadId: string; threadType: ThreadType; personName: string; senderId: string; who: string; ambient?: boolean },
+    profile: Profile,
+  ): Promise<string | null> {
+    const isGroup = t.threadType === "group";
+    const messages = this.history(acc, t.threadId, isGroup);
+    if (!messages.length || messages[messages.length - 1].role !== "user") return null;
+    const system =
+      frameSystemPrompt({
+        ownerName: acc.ownerName(),
+        profileName: profile.name,
+        isGroup,
+        groupName: isGroup ? (await acc.groupName(t.threadId)) || t.who : "",
+        personName: t.personName,
+        sendMode: profile.sendMode,
+        salutation: acc.salutation(t.senderId),
+        ambient: t.ambient,
+      }) +
+      "\n\n" +
+      this.profiles.compose(profile.id, undefined, this.now()) +
+      (isGroup ? "" : customerBlock(this.customerNote?.(acc.accountId, t.threadId) ?? ""));
+    return engine.generate({ system, messages });
+  }
+
+  /**
+   * Chủ bấm "Nhờ trợ lý soạn" (VD khách chờ lâu, kể cả khách chưa gắn nhãn): soạn một NHÁP theo tính cách chọn,
+   * không bao giờ tự gửi, không xét luật im lặng. Trả nháp, hoặc ném lỗi dễ hiểu.
+   */
+  async draftFor(accountId: number, threadId: string, profileId: number): Promise<Draft> {
+    const acc = this.account(accountId);
+    if (!acc) throw new Error("Không có tài khoản này");
+    const conv = acc.inbox.conversation(threadId);
+    if (!conv) throw new Error("Không có hội thoại này");
+    const profile = this.profiles.list(accountId).find((p) => p.id === profileId);
+    if (!profile) throw new Error("Tính cách không thuộc tài khoản này");
+    const engine = this.engine();
+    if (!engine) throw new Error("Chưa cấu hình mô hình AI");
+    const who = conv.name || threadId;
+    const lastIn = [...acc.inbox.messages(threadId, 10)].reverse().find((m) => m.direction === "in");
+    const raw = await this.generate(
+      acc,
+      engine,
+      { threadId, threadType: conv.thread_type, personName: lastIn?.sender_name || conv.name, senderId: lastIn?.sender_id || threadId, who },
+      profile,
+    );
+    if (raw === null) throw new Error("Tin cuối là của bạn, khách chưa hỏi gì thêm để trả lời");
+    const parsed = parseReply(raw);
+    if (parsed.silent || !parsed.text) throw new Error("Trợ lý thấy tin này không cần trả lời. Bạn tự trả lời nếu cần.");
+    return this.store.addDraft(accountId, threadId, profile.id, parsed.text, parsed.handoff, this.now());
+  }
+
+  private async reply(acc: ReplierAccount, event: InboundEvent, profile: Profile, who: string, ambient = false) {
+    // Nhóm tự trả lời: giới hạn số tin mỗi giờ để trợ lý không lấn át nhóm (và nick không bị Zalo hạn chế).
+    if (ambient && acc.inbox.aiSentSince(event.threadId, this.now() - 3_600_000) >= this.lim(acc.accountId).groupAutoHour) return;
     const engine = this.engine();
     if (!engine) {
       this.store.notify(acc.accountId, "error", `Chưa cấu hình mô hình AI nên trợ lý chưa trả lời ${who}.`, event.threadId);
       return;
     }
     const isGroup = event.threadType === "group";
-    const messages = this.history(acc, event.threadId, isGroup);
-    if (!messages.length || messages[messages.length - 1].role !== "user") return;
-    const system =
-      frameSystemPrompt({
-        ownerName: acc.ownerName(),
-        profileName: profile.name,
-        isGroup,
-        groupName: isGroup ? (await acc.groupName(event.threadId)) || who : "",
-        personName: event.displayName,
-        sendMode: profile.sendMode,
-        salutation: acc.salutation(event.senderId),
-      }) +
-      "\n\n" +
-      this.profiles.compose(profile.id, undefined, this.now());
-
-    let raw: string;
+    let raw: string | null;
     try {
-      raw = await engine.generate({ system, messages });
+      raw = await this.generate(
+        acc,
+        engine,
+        { threadId: event.threadId, threadType: event.threadType, personName: event.displayName, senderId: event.senderId, who, ambient },
+        profile,
+      );
     } catch (err) {
+      if (ambient) return; // không ai gọi trợ lý: lỗi AI không cần làm phiền chủ
       this.store.notify(acc.accountId, "error", `AI lỗi khi trả lời ${who}: ${(err as Error).message}. Không có tin nào được gửi.`, event.threadId);
       return;
     }
+    if (raw === null) return;
     const parsed = parseReply(raw);
     if (parsed.silent) return;
+    // Tự trả lời trong nhóm mà AI thấy cần người thật: im lặng, không chuyển cả nhóm sang chờ người.
+    if (ambient && parsed.handoff) return;
     // Trong nhóm, lời chuyển người thật không viết vào nhóm — chỉ báo chủ.
     const text = isGroup && parsed.handoff ? "" : parsed.text;
+    if (isGroup && text) {
+      this.answered.set(`${acc.accountId}:${event.threadId}:${event.senderId}`, this.now());
+      if (this.answered.size > 5_000) this.answered.delete(this.answered.keys().next().value!);
+    }
 
     if (parsed.handoff) this.handoff(acc, event, who, "AI thấy cần người thật");
     if (!text) return;
@@ -214,9 +392,29 @@ export class Replier {
       this.store.notify(acc.accountId, "error", `Zalo mất kết nối nên câu trả lời cho ${who} được giữ ở dạng nháp.`, event.threadId);
       return;
     }
+    const cap = isGroup ? this.groupCapReason(acc, event) : this.autoCapReason(acc, event.threadId);
+    if (cap) {
+      // Chặn hai bot nói chuyện với nhau mãi / nick bị Zalo hạn chế: giữ nháp, báo chủ một lần cho mỗi đợt.
+      const already = this.store.pending(acc.accountId, event.threadId).length > 0;
+      this.store.addDraft(acc.accountId, event.threadId, profile.id, text, parsed.handoff, this.now());
+      if (!already) {
+        this.store.notify(
+          acc.accountId,
+          "draft",
+          `${who}: ${cap}, nên câu tiếp theo được giữ ở dạng nháp chờ bạn duyệt (có thể là một bot khác đang nhắn qua lại).`,
+          event.threadId,
+        );
+      }
+      return;
+    }
     try {
       const ids = await acc.sendText(event.threadId, event.threadType, text);
       acc.inbox.recordOutbound(event.threadId, event.threadType, text, "ai", ids[0] ?? null, this.now());
+      if (isGroup) {
+        const key = `${acc.accountId}:${event.threadId}:${event.senderId}`;
+        this.groupSends.set(key, [...(this.groupSends.get(key) ?? []).filter((t) => this.now() - t < 3_600_000), this.now()]);
+        if (this.groupSends.size > 5_000) this.groupSends.delete(this.groupSends.keys().next().value!);
+      }
     } catch (err) {
       this.store.addDraft(acc.accountId, event.threadId, profile.id, text, parsed.handoff, this.now());
       this.store.notify(acc.accountId, "error", `Gửi trả lời cho ${who} lỗi (${(err as Error).message}); câu trả lời được giữ ở dạng nháp.`, event.threadId);
@@ -245,9 +443,14 @@ export class Replier {
     const body = (text ?? d.text).trim();
     if (!body) throw new Error("Nội dung trống");
     try {
-      const ids = await acc.sendText(d.threadId, conv?.thread_type ?? "user", body);
-      acc.inbox.recordOutbound(d.threadId, conv?.thread_type ?? "user", body, "ai", ids[0] ?? null, this.now());
+      // Tin chăm sóc là tin chủ động: bộ nhịp gửi chặn giờ yên lặng.
+      const type = conv?.thread_type ?? "user";
+      // Tin lịch gửi do AI soạn: gửi kèm @All / mức độ đã chọn ở lịch.
+      const mentionAll = Boolean(d.sendOpts?.mentionAll) && type === "group";
+      const ids = await acc.sendText(d.threadId, type, body, { proactive: d.origin === "care", urgency: d.sendOpts?.urgency ?? 0, mentionAll });
+      acc.inbox.recordOutbound(d.threadId, type, mentionAll ? `@All ${body}` : body, "ai", ids[0] ?? null, this.now());
       this.store.decide(draftId, "sent", "", body);
+      this.onDraftSent?.({ ...d, text: body, status: "sent" });
     } catch (err) {
       this.store.decide(draftId, "failed", (err as Error).message);
       throw err;
@@ -257,4 +460,18 @@ export class Replier {
   dispose() {
     for (const b of this.batchers.values()) b.dispose();
   }
+}
+
+/** Khối "điều đã biết về khách" thêm vào cuối lời dặn AI (rỗng nếu chưa có hồ sơ). */
+export function customerBlock(note: string): string {
+  const t = note.trim();
+  if (!t) return "";
+  return [
+    "",
+    "",
+    "# Điều đã biết về khách này",
+    "Hồ sơ do trợ lý ghi từ các lần trò chuyện trước, chủ có thể đã sửa. Dùng để hiểu khách và nối tiếp câu chuyện;",
+    "không đọc lại nguyên văn cho khách, không nói là có hồ sơ. Thông tin sản phẩm, giá, lịch vẫn chỉ lấy từ <tai_lieu>.",
+    t,
+  ].join("\n");
 }

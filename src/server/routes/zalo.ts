@@ -2,7 +2,12 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AccountManager } from "../../channels/zalo/accounts.js";
 import { type ProfileStore, resolveProfile } from "../../core/profiles.js";
 import type { AssistantStore } from "../../core/assistantStore.js";
+import type { CareStore } from "../../care/store.js";
 import type { ScheduleStore } from "../../scheduler/store.js";
+import { WAIT_LOOKBACK_MS, WAIT_REPLY_MS } from "../../core/waiting.js";
+import { DEFAULT_CALL_WORDS } from "../../core/replyPolicy.js";
+import { DEFAULT_SEND_LIMITS, SEND_LIMIT_RANGE, limitsKey, normalizeLimits } from "../../core/sendLimits.js";
+import type { Settings } from "../settings.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -10,7 +15,18 @@ declare module "fastify" {
   }
 }
 
-export function registerAccountRoutes(app: FastifyInstance, accounts: AccountManager, profiles: ProfileStore, assistant: AssistantStore, schedules?: ScheduleStore) {
+export function registerAccountRoutes(
+  app: FastifyInstance,
+  accounts: AccountManager,
+  profiles: ProfileStore,
+  assistant: AssistantStore,
+  schedules?: ScheduleStore,
+  care?: CareStore,
+  /** Người là admin (chat ra lệnh với bot): không tính là khách chờ trả lời. */
+  isAdmin?: (accountId: number, userId: string) => boolean,
+  /** Cấu hình (từ gọi trợ lý trong nhóm). */
+  settings?: Settings,
+) {
   const fail = (err: unknown, code = 409) => Object.assign(new Error((err as Error).message), { statusCode: code });
   const svc = (req: FastifyRequest) => {
     try {
@@ -28,12 +44,25 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
   });
 
   // ---------- Tài khoản ----------
+  /** Khách chờ trả lời lâu, bỏ hội thoại gắn nhãn "Không bot" (thường là người nhà, nội bộ). */
+  const waitingFor = (s: ReturnType<typeof accounts.get>, accountId: number, labels: unknown[] | null, now: number) => {
+    const w = s.inbox.waitingReplies(now, WAIT_REPLY_MS, WAIT_LOOKBACK_MS);
+    const list = profiles.list(accountId);
+    const offTag = profiles.offTag(accountId);
+    for (const id of [...w.keys()]) {
+      const c = s.inbox.conversation(id);
+      if (!c || resolveProfile(c, list, labels, offTag).kind === "off" || isAdmin?.(accountId, id)) w.delete(id);
+    }
+    return w;
+  };
+
   app.get("/api/accounts", async () => ({
-    accounts: accounts.list().map((a) => {
+    accounts: await Promise.all(accounts.list().map(async (a) => {
       const s = accounts.get(a.id);
       const st = s.channel.getStatus();
       const counts = s.inbox.counts();
       const draftThreads = new Set(assistant.pendingCounts(a.id).keys());
+      const waiting = waitingFor(s, a.id, await s.channel.labels(), Date.now());
       return {
         id: a.id,
         name: a.name,
@@ -43,13 +72,15 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
         paused: assistant.isPaused(a.id),
         unread: assistant.unreadCount(a.id),
         pendingDrafts: assistant.pending(a.id).length,
-        // "Cần xử lý" = hội thoại có nháp chờ duyệt hoặc đang chờ người thật.
-        needsAction: new Set([...draftThreads, ...counts.waitingThreads]).size,
+        // "Cần xử lý" = hội thoại có nháp chờ duyệt, đang chờ người thật, hoặc khách chờ trả lời lâu.
+        needsAction: new Set([...draftThreads, ...counts.waitingThreads, ...waiting.keys()]).size,
         unreadConversations: counts.unread,
         activeSchedules: schedules ? schedules.list({ accountId: a.id, status: "active" }).length : 0,
         trackedGroups: accounts.trackedGroupCount(a.id),
+        // Khách tới lượt chăm sóc trong hôm nay (số ở mục Chăm sóc).
+        careDue: care ? care.dueToday(a.id, Date.now()) : 0,
       };
-    }),
+    })),
   }));
 
   app.post<{ Body: { name?: string } }>("/api/accounts", async (req) => ({ account: accounts.create(req.body?.name ?? "") }));
@@ -155,7 +186,9 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
     const pending = assistant.pendingCounts(req.accountId);
     const since = assistant.pendingSince(req.accountId);
     const first = s.inbox.firstMessageTimes();
+    const carePlans = new Map((care?.list(req.accountId) ?? []).map((p) => [p.threadId, p]));
     const now = Date.now();
+    const waiting = waitingFor(s, req.accountId, labels, now);
     return {
       labelsAvailable: labels !== null,
       conversations: s.inbox.conversations().map((c) => {
@@ -165,10 +198,19 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
           pendingDrafts: pending.get(c.thread_id) ?? 0,
           draftSince: since.get(c.thread_id) ?? 0,
           firstMessageAt: first.get(c.thread_id) ?? 0,
+          // Lần chăm sóc chủ động tới (0 = chưa có kế hoạch / đang dừng).
+          nextCareAt: carePlans.get(c.thread_id)?.status === "active" ? (carePlans.get(c.thread_id)?.nextAt ?? 0) : 0,
           // Cách gọi khách (chỉ chat riêng): giới tính hồ sơ Zalo hoặc chủ sửa tay.
           gender: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.gender ?? "") : "",
           genderSource: c.thread_type === "user" ? (s.contacts.get(c.thread_id)?.source ?? "") : "",
           waitingHuman: c.handoff_until > now,
+          // Khách nhắn mà chưa ai trả lời quá 30 phút: mốc khách bắt đầu chờ (0 = không chờ).
+          waitingReplySince: waiting.get(c.thread_id) ?? 0,
+          // Gợi ý gắn nhãn (AI đoán), chỉ khi hội thoại chưa có nhãn trợ lý.
+          suggestion:
+            r.kind === "none" && c.suggest_profile_id && !c.suggest_dismissed && list.some((p) => p.id === c.suggest_profile_id)
+              ? { profileId: c.suggest_profile_id, reason: c.suggest_reason }
+              : null,
           bot:
             r.kind === "profile"
               ? { kind: "profile", profileId: r.profile.id, name: r.profile.name, source: r.source, conflict: r.conflict.map((p) => p.name) }
@@ -200,6 +242,35 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountMan
       throw fail(err);
     }
     return { ok: true };
+  });
+
+  // Giới hạn tin trợ lý tự gửi, theo tài khoản: giá trị đang dùng + mặc định + khoảng cho phép.
+  app.get("/api/zalo/limits", async (req) => ({
+    limits: normalizeLimits(settings?.get(limitsKey(req.accountId))),
+    defaults: DEFAULT_SEND_LIMITS,
+    range: SEND_LIMIT_RANGE,
+  }));
+  app.put<{ Body: { limits?: unknown; reset?: boolean } }>("/api/zalo/limits", async (req) => {
+    const limits = req.body?.reset ? DEFAULT_SEND_LIMITS : normalizeLimits(req.body?.limits);
+    settings?.set(limitsKey(req.accountId), limits);
+    return { limits };
+  });
+
+  // Từ gọi trợ lý trong nhóm (tính như tag), theo tài khoản.
+  app.get("/api/zalo/call-words", async (req) => ({ words: settings?.get<string[]>(`group.callWords.${req.accountId}`) ?? DEFAULT_CALL_WORDS }));
+  app.put<{ Body: { words?: string[] } }>("/api/zalo/call-words", async (req, reply) => {
+    const words = [...new Set((req.body?.words ?? []).map((w) => String(w).trim().slice(0, 40)).filter((w) => w.length >= 2))].slice(0, 20);
+    settings?.set(`group.callWords.${req.accountId}`, words);
+    return { words };
+  });
+
+  // Nhóm: bật / tắt trợ lý tự trả lời câu hỏi (không cần ai tag).
+  app.put<{ Params: { id: string }; Body: { on?: boolean } }>("/api/zalo/conversations/:id/group-auto", async (req, reply) => {
+    const s = svc(req);
+    const c = s.inbox.conversation(req.params.id);
+    if (!c || c.thread_type !== "group") return reply.code(400).send({ error: "Chỉ bật được cho nhóm" });
+    s.inbox.setGroupAuto(req.params.id, Boolean(req.body?.on));
+    return { groupAuto: Boolean(req.body?.on) };
   });
 
   /**

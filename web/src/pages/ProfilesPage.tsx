@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { type Account, type Profile, api, ApiError, readAsBase64 } from "../api";
+import { type Account, type CareSettings, type Profile, api, ApiError, readAsBase64 } from "../api";
 import {
   EMPTY_IDENTITY,
   type Faq,
@@ -297,6 +297,8 @@ function ProfileEditor({
           )}
         </div>
 
+        {profile && <CareSettingsCard key={`care-${profile.id}`} profile={profile} tagCount={tagCount} />}
+
         {/* ---------- Tầng 0 ---------- */}
         {profile && (
           <details className="card layer layer-0" onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && loadFrame()}>
@@ -500,6 +502,7 @@ function KnowledgeLayer({ profile, onChanged }: { profile: Profile; onChanged: (
         </ul>
       )}
 
+      {profile.applies !== "group" && <LearnedFaqs profileId={profile.id} onChanged={onChanged} />}
       <strong className="small">Câu hỏi thường gặp ({profile.faqs.length})</strong>
       <ul className="faqs">
         {profile.faqs.map((f) =>
@@ -542,6 +545,105 @@ function KnowledgeLayer({ profile, onChanged }: { profile: Profile; onChanged: (
         </Modal>
       )}
     </Layer>
+  );
+}
+
+type Suggestion = { id: number; question: string; answer: string; evidence: string; createdAt: number };
+type LearnView = { suggestions: Suggestion[]; learnedAt: number; drafts: { sentAsIs: number; edited: number; discarded: number }; added?: number };
+
+/**
+ * Gợi ý hỏi đáp rút từ cách chủ trả lời khách (tự gõ, hoặc sửa nháp trợ lý rồi gửi). App tự tìm mỗi ngày khi có
+ * đủ lượt trả lời mới; bấm "Tìm gợi ý" để tìm ngay. Duyệt (sửa được) thì thành hỏi đáp ở dưới.
+ */
+function LearnedFaqs({ profileId, onChanged }: { profileId: number; onChanged: () => void }) {
+  const [view, setView] = useState<LearnView | null>(null);
+  const [edits, setEdits] = useState<Record<number, { question: string; answer: string }>>({});
+  const [busy, setBusy] = useState<number | "find" | null>(null);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    api<LearnView>(`/api/profiles/${profileId}/learn`)
+      .then(setView)
+      .catch(() => undefined);
+  }, [profileId]);
+  const find = async () => {
+    setBusy("find");
+    setMessage("");
+    try {
+      const r = await api<LearnView>(`/api/profiles/${profileId}/learn`, { method: "POST" });
+      setView(r);
+      setMessage(r.added ? `Tìm được ${r.added} gợi ý mới.` : "Chưa thấy gì mới để học. Khi bạn trả lời khách thêm, app sẽ tự tìm lại.");
+    } catch (err) {
+      setMessage((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const decide = async (s: Suggestion, accept: boolean) => {
+    setBusy(s.id);
+    setMessage("");
+    try {
+      const e = edits[s.id];
+      setView(await api<LearnView>(`/api/profiles/${profileId}/learn/${s.id}`, { body: { accept, question: e?.question, answer: e?.answer } }));
+      if (accept) onChanged();
+    } catch (err) {
+      setMessage((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  if (!view) return null;
+  const d = view.drafts;
+  const total = d.sentAsIs + d.edited + d.discarded;
+  return (
+    <div className="learn-box">
+      <div className="learn-head">
+        <div>
+          <strong className="small">Gợi ý từ cách bạn trả lời ({view.suggestions.length})</strong>
+          <p className="muted small">
+            App đọc những lần bạn tự trả lời khách hoặc sửa nháp trợ lý, rút thành hỏi đáp để trợ lý trả lời giống bạn.
+            {view.learnedAt ? ` Lần tìm gần nhất: ${fmtDate(view.learnedAt)}.` : " Tự tìm mỗi ngày khi có đủ lượt trả lời mới."}
+          </p>
+          {total > 0 && (
+            <p className="muted small">
+              Nháp trợ lý 30 ngày qua: {d.sentAsIs} gửi nguyên văn, {d.edited} bạn sửa rồi gửi, {d.discarded} bỏ.
+            </p>
+          )}
+        </div>
+        <button className="small-btn" onClick={find} disabled={busy !== null}>
+          {busy === "find" ? "Đang đọc hội thoại…" : "Tìm gợi ý"}
+        </button>
+      </div>
+      {view.suggestions.length > 0 && (
+        <ul className="faqs">
+          {view.suggestions.map((s) => {
+            const e = edits[s.id] ?? { question: s.question, answer: s.answer };
+            const set = (patch: Partial<typeof e>) => setEdits((m) => ({ ...m, [s.id]: { ...e, ...patch } }));
+            return (
+              <li key={s.id} className="learn-item">
+                <label className="learn-field">
+                  <span>Hỏi</span>
+                  <input value={e.question} onChange={(ev) => set({ question: ev.target.value })} />
+                </label>
+                <label className="learn-field">
+                  <span>Đáp</span>
+                  <textarea rows={3} value={e.answer} onChange={(ev) => set({ answer: ev.target.value })} />
+                </label>
+                {s.evidence && <p className="muted small">Rút từ: {s.evidence}</p>}
+                <div className="row small">
+                  <button className="small-btn" disabled={busy !== null} onClick={() => decide(s, true)}>
+                    {busy === s.id ? "Đang lưu…" : "Thêm vào hỏi đáp"}
+                  </button>
+                  <button className="link small" disabled={busy !== null} onClick={() => decide(s, false)}>
+                    Bỏ
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {message && <p className="muted small">{message}</p>}
+    </div>
   );
 }
 
@@ -932,5 +1034,85 @@ function TagPicker({ value, labels, connected, onChange }: { value: string; labe
       )}
       {!connected && <span className="muted small">Zalo chưa kết nối nên chưa đọc được danh sách nhãn — gõ đúng tên nhãn.</span>}
     </label>
+  );
+}
+
+const CARE_RULES_HINT = `VD:
+- Khách mới hỏi, đang tìm hiểu: 2–3 ngày hỏi thăm một lần, gửi thêm thông tin đúng điều khách quan tâm
+- Khách hẹn trả lời / đang cân nhắc: nhắn đúng ngày hẹn, nhắc ưu đãi còn hạn
+- Khách đã đăng ký, đã mua: hỏi thăm sau 3 ngày, rồi 7 ngày, rồi mỗi tháng
+- Không nhắn quá 3 lần liền mà khách không trả lời`;
+
+/** Thẻ "Chăm sóc chủ động" của một tính cách: bật / tắt, cách chăm sóc, giới hạn mỗi ngày. */
+function CareSettingsCard({ profile, tagCount }: { profile: Profile; tagCount: number }) {
+  const init = profile.care ?? { enabled: false, rules: "", maxPerDay: 20 };
+  const [care, setCare] = useState<CareSettings>(init);
+  const [saved, setSaved] = useState<CareSettings>(init);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const dirty = JSON.stringify(care) !== JSON.stringify(saved);
+  const save = async (next = care) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const r = await api<{ care: CareSettings }>(`/api/profiles/${profile.id}/care`, { method: "PUT", body: next });
+      setCare(r.care);
+      setSaved(r.care);
+      setNotice({
+        ok: true,
+        text: r.care.enabled
+          ? `Đã bật. Trợ lý sẽ lần lượt đọc lại hội thoại của ${tagCount || "các"} khách gắn nhãn này và lập kế hoạch (khoảng 1 khách mỗi 30 giây).`
+          : "Đã tắt chăm sóc chủ động cho tính cách này.",
+      });
+    } catch (err) {
+      setNotice({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card stack care-settings">
+      <div className="row between">
+        <div className="grow">
+          <strong>Chăm sóc chủ động</strong>
+          <p className="muted small">
+            Với mỗi khách chat riêng gắn nhãn tính cách này, trợ lý ghi hồ sơ, tóm tắt những gì đã trao đổi và đặt lịch chăm sóc tiếp theo. Tới
+            lịch, trợ lý soạn sẵn tin vào mục Cần xử lý để bạn duyệt, không tự gửi.
+          </p>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={care.enabled}
+            disabled={busy}
+            onChange={(e) => {
+              const next = { ...care, enabled: e.target.checked };
+              setCare(next);
+              void save(next);
+            }}
+          />
+          {care.enabled ? "Đang bật" : "Đang tắt"}
+        </label>
+      </div>
+      <label className="field">
+        <span>Cách chăm sóc của tính cách này</span>
+        <textarea rows={5} value={care.rules} placeholder={CARE_RULES_HINT} onChange={(e) => setCare({ ...care, rules: e.target.value })} />
+      </label>
+      <label className="inline">
+        Tối đa tin chăm sóc soạn mỗi ngày
+        <input type="number" min={1} max={200} value={care.maxPerDay} style={{ width: 90 }} onChange={(e) => setCare({ ...care, maxPerDay: Number(e.target.value) })} />
+      </label>
+      {notice && <div className={`notice small ${notice.ok ? "ok" : "bad"}`}>{notice.text}</div>}
+      {dirty && (
+        <div className="row">
+          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
+            {busy ? "Đang lưu…" : "Lưu cách chăm sóc"}
+          </button>
+          <button type="button" className="ghost" disabled={busy} onClick={() => setCare(saved)}>
+            Huỷ
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

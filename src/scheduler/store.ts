@@ -5,7 +5,9 @@ import type { DB } from "../server/db.js";
 import { type Recurrence, RecurrenceError, nextRun, validateRecurrence } from "./recurrence.js";
 
 export type ScheduleStatus = "active" | "paused" | "cancelled" | "done";
-export type RunStatus = "sent" | "failed" | "missed";
+export type RunStatus = "sent" | "failed" | "missed" | "drafted";
+/** "off" = gửi đúng nội dung soạn sẵn; "draft" = mỗi lượt AI viết tin mới, chờ chủ duyệt; "auto" = AI viết và tự gửi. */
+export type AiMode = "off" | "draft" | "auto";
 
 export interface ScheduleTarget {
   threadId: string;
@@ -21,10 +23,26 @@ export interface ScheduleInput {
   imageIds: number[];
   targets: ScheduleTarget[];
   recurrence: Recurrence;
+  /** Tag tất cả mọi người (@All) — chỉ có tác dụng khi gửi vào nhóm. */
+  mentionAll?: boolean;
+  /** Mức độ tin: 0 thường, 1 quan trọng, 2 khẩn cấp. */
+  urgency?: Urgency;
+  aiMode?: AiMode;
+  /** Chủ đề / yêu cầu cho AI (bắt buộc khi aiMode khác off). */
+  aiBrief?: string;
+  /** Tính cách AI dùng để viết (null = tính cách đầu tiên của tài khoản). */
+  aiProfileId?: number | null;
 }
 
-export interface Schedule extends Omit<ScheduleInput, "title" | "accountId"> {
+export type Urgency = 0 | 1 | 2;
+
+export interface Schedule extends Omit<ScheduleInput, "title" | "accountId" | "mentionAll" | "urgency" | "aiMode" | "aiBrief" | "aiProfileId"> {
   id: number;
+  mentionAll: boolean;
+  urgency: Urgency;
+  aiMode: AiMode;
+  aiBrief: string;
+  aiProfileId: number | null;
   accountId: number;
   title: string;
   status: ScheduleStatus;
@@ -42,6 +60,8 @@ export interface ScheduleRun {
   error: string;
   doneAt: number;
   manual: boolean;
+  /** Nội dung đã gửi / đã soạn của lượt (lịch AI soạn). */
+  text?: string;
 }
 
 export interface MediaRow {
@@ -67,6 +87,11 @@ interface ScheduleRow {
   recurrence: string;
   status: ScheduleStatus;
   next_run_at: number | null;
+  mention_all: number;
+  urgency: number;
+  ai_mode: string;
+  ai_brief: string;
+  ai_profile_id: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -107,11 +132,18 @@ export class ScheduleStore {
   private validate(input: ScheduleInput, now: number, isNew: boolean): number | null {
     const text = (input.text ?? "").trim();
     const imageIds = input.imageIds ?? [];
-    if (!text && imageIds.length === 0) throw new ScheduleError("Lịch cần có chữ hoặc ảnh");
+    const ai = input.aiMode ?? "off";
+    if (!["off", "draft", "auto"].includes(ai)) throw new ScheduleError("Cách soạn tin không hợp lệ");
+    if (ai !== "off") {
+      if (!(input.aiBrief ?? "").trim()) throw new ScheduleError("Nhập chủ đề để AI soạn tin mỗi lượt");
+      if ((input.aiBrief ?? "").length > 3000) throw new ScheduleError("Chủ đề quá dài (tối đa 3000 ký tự)");
+      if (imageIds.length) throw new ScheduleError("Lịch AI soạn chưa kèm được ảnh — bỏ ảnh hoặc chuyển về tự soạn");
+    } else if (!text && imageIds.length === 0) throw new ScheduleError("Lịch cần có chữ hoặc ảnh");
     if (text.length > 6000) throw new ScheduleError("Nội dung quá dài (tối đa 6000 ký tự)");
     if (imageIds.length > MAX_IMAGES) throw new ScheduleError(`Tối đa ${MAX_IMAGES} ảnh`);
     for (const id of imageIds) if (!this.media(id)) throw new ScheduleError("Có ảnh không còn tồn tại, hãy tải lại");
     if (!input.targets?.length) throw new ScheduleError("Chọn ít nhất một hội thoại để gửi");
+    if (input.urgency !== undefined && ![0, 1, 2].includes(Number(input.urgency))) throw new ScheduleError("Mức độ tin không hợp lệ");
     try {
       validateRecurrence(input.recurrence);
     } catch (err) {
@@ -129,10 +161,10 @@ export class ScheduleStore {
     try {
       const r = this.db
         .prepare(
-          `INSERT INTO schedules (account_id, title, text, image_ids, recurrence, status, next_run_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+          `INSERT INTO schedules (account_id, title, text, image_ids, recurrence, status, next_run_at, mention_all, urgency, ai_mode, ai_brief, ai_profile_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(input.accountId ?? 1, (input.title ?? "").trim().slice(0, 120), input.text.trim(), JSON.stringify(input.imageIds), JSON.stringify(input.recurrence), next, now, now);
+        .run(input.accountId ?? 1, (input.title ?? "").trim().slice(0, 120), input.text.trim(), JSON.stringify(input.imageIds), JSON.stringify(input.recurrence), next, input.mentionAll ? 1 : 0, Number(input.urgency ?? 0), ...aiCols(input), now, now);
       const id = Number(r.lastInsertRowid);
       this.writeTargets(id, input.targets);
       this.db.exec("COMMIT");
@@ -153,8 +185,20 @@ export class ScheduleStore {
     this.db.exec("BEGIN");
     try {
       this.db
-        .prepare("UPDATE schedules SET title = ?, text = ?, image_ids = ?, recurrence = ?, status = ?, next_run_at = ?, updated_at = ? WHERE id = ?")
-        .run((input.title ?? "").trim().slice(0, 120), input.text.trim(), JSON.stringify(input.imageIds), JSON.stringify(input.recurrence), status, next, now, id);
+        .prepare("UPDATE schedules SET title = ?, text = ?, image_ids = ?, recurrence = ?, status = ?, next_run_at = ?, mention_all = ?, urgency = ?, ai_mode = ?, ai_brief = ?, ai_profile_id = ?, updated_at = ? WHERE id = ?")
+        .run(
+          (input.title ?? "").trim().slice(0, 120),
+          input.text.trim(),
+          JSON.stringify(input.imageIds),
+          JSON.stringify(input.recurrence),
+          status,
+          next,
+          input.mentionAll ? 1 : 0,
+          Number(input.urgency ?? 0),
+          ...aiCols(input),
+          now,
+          id,
+        );
       this.db.prepare("DELETE FROM schedule_targets WHERE schedule_id = ?").run(id);
       this.writeTargets(id, input.targets);
       this.db.exec("COMMIT");
@@ -200,7 +244,7 @@ export class ScheduleStore {
       rec.date = new Date(now + 7 * 3_600_000 + 86_400_000).toISOString().slice(0, 10);
       if (rec.endDate && rec.endDate < rec.date) delete rec.endDate;
     }
-    return this.create({ accountId: s.accountId, title: s.title ? `${s.title} (bản sao)` : "", text: s.text, imageIds: s.imageIds, targets: s.targets, recurrence: rec }, now);
+    return this.create({ accountId: s.accountId, title: s.title ? `${s.title} (bản sao)` : "", text: s.text, imageIds: s.imageIds, targets: s.targets, recurrence: rec, mentionAll: s.mentionAll, urgency: s.urgency, aiMode: s.aiMode, aiBrief: s.aiBrief, aiProfileId: s.aiProfileId }, now);
   }
 
   get(id: number): Schedule | undefined {
@@ -267,6 +311,11 @@ export class ScheduleStore {
       recurrence: JSON.parse(row.recurrence) as Recurrence,
       status: row.status,
       nextRunAt: row.next_run_at,
+      mentionAll: Boolean(row.mention_all),
+      urgency: (Number(row.urgency) || 0) as Urgency,
+      aiMode: (["draft", "auto"].includes(row.ai_mode) ? row.ai_mode : "off") as AiMode,
+      aiBrief: row.ai_brief ?? "",
+      aiProfileId: row.ai_profile_id ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       targets,
@@ -276,8 +325,8 @@ export class ScheduleStore {
   // ---------- Lượt gửi ----------
   addRun(run: Omit<ScheduleRun, "id">): number {
     const r = this.db
-      .prepare("INSERT INTO schedule_runs (schedule_id, thread_id, planned_at, status, error, done_at, manual) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(run.scheduleId, run.threadId, run.plannedAt, run.status, run.error.slice(0, 500), run.doneAt, run.manual ? 1 : 0);
+      .prepare("INSERT INTO schedule_runs (schedule_id, thread_id, planned_at, status, error, done_at, manual, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(run.scheduleId, run.threadId, run.plannedAt, run.status, run.error.slice(0, 500), run.doneAt, run.manual ? 1 : 0, (run.text ?? "").slice(0, 6000));
     return Number(r.lastInsertRowid);
   }
 
@@ -288,6 +337,14 @@ export class ScheduleStore {
   run(id: number): ScheduleRun | undefined {
     const r = this.db.prepare("SELECT * FROM schedule_runs WHERE id = ?").get(id) as Record<string, unknown> | undefined;
     return r ? toRun(r) : undefined;
+  }
+
+  /** Các tin AI đã viết gần đây cho lịch này (mới nhất trước, không trùng) — để AI không lặp lại. */
+  recentTexts(scheduleId: number, limit = 5): string[] {
+    const rows = this.db
+      .prepare("SELECT text FROM schedule_runs WHERE schedule_id = ? AND text <> '' GROUP BY text ORDER BY MAX(done_at) DESC LIMIT ?")
+      .all(scheduleId, limit) as { text: string }[];
+    return rows.map((r) => r.text);
   }
 
   runs(scheduleId: number, limit = 50): ScheduleRun[] {
@@ -310,5 +367,11 @@ function toRun(r: Record<string, unknown>): ScheduleRun {
     error: String(r.error ?? ""),
     doneAt: Number(r.done_at),
     manual: Boolean(r.manual),
+    text: String(r.text ?? ""),
   };
+}
+
+function aiCols(input: ScheduleInput): [string, string, number | null] {
+  const mode = input.aiMode ?? "off";
+  return [mode, mode === "off" ? "" : (input.aiBrief ?? "").trim(), input.aiProfileId ? Number(input.aiProfileId) : null];
 }

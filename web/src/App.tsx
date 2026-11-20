@@ -7,7 +7,7 @@ import {
   ChartLine,
   Check,
   ChevronsUpDown,
-  Cpu,
+  House,
   Inbox,
   LayoutDashboard,
   LogOut,
@@ -18,19 +18,19 @@ import {
   Plug,
   Plus,
   RefreshCw,
-  Smartphone,
+  Settings,
   Sparkles,
   SunMoon,
   UserRound,
   UsersRound,
 } from "lucide-react";
 import { type Account, type Notice, api, prefs, setCurrentAccount } from "./api";
-import { AccountsPage } from "./pages/AccountsPage";
 import { AuthScreen } from "./pages/AuthScreen";
-import { InboxPage } from "./pages/InboxPage";
+import { type InboxMode, InboxPage } from "./pages/InboxPage";
 import { GroupsPage } from "./pages/GroupsPage";
-import { ModelsPage } from "./pages/ModelsPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
+import { SETTINGS_TABS, type SettingsTab, SettingsPage } from "./pages/SettingsPage";
+import { TodayPage } from "./pages/TodayPage";
 import { SchedulesPage } from "./schedules/SchedulePanels";
 import { Popover, initials, timeAndDay } from "./ui";
 import { UpdateBanner, UpdateDialog, useUpdate } from "./update/UpdateDialog";
@@ -39,20 +39,20 @@ import { OverviewPage } from "./pages/mkt/OverviewPage";
 import { ChannelsPage } from "./pages/mkt/ChannelsPage";
 import { ConnectionsPage } from "./pages/mkt/ConnectionsPage";
 import "./mkt.css";
+import "./care.css";
 
 type Status = { hasAdmin: boolean; user: { username: string } | null; version?: string; features?: { mkt?: boolean } };
-export type Page = "can" | "hop" | "schedules" | "groups" | "profiles" | "accounts" | "models" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
+export type Page = "homnay" | "hop" | "schedules" | "groups" | "profiles" | "settings" | "mkt" | "mkt-kenh" | "mkt-ketnoi";
 const MKT_PAGES: Page[] = ["mkt", "mkt-kenh", "mkt-ketnoi"];
 type Theme = "system" | "light" | "dark";
 
 const TITLES: Record<Page, string> = {
-  can: "Cần xử lý",
+  homnay: "Hôm nay",
   hop: "Hộp thư",
   schedules: "Lịch gửi",
   groups: "Nhóm Zalo",
   profiles: "Tính cách",
-  accounts: "Tài khoản Zalo",
-  models: "Mô hình AI",
+  settings: "Cài đặt",
   mkt: "Tổng quan MKT",
   "mkt-kenh": "Kênh",
   "mkt-ketnoi": "Kết nối",
@@ -77,18 +77,41 @@ const stateOf = (a?: Account) =>
 const stateText = (a?: Account) =>
   a?.state === "connected" ? "Đã kết nối" : a?.state === "waiting_qr" || a?.state === "scanned" ? "Chờ quét mã QR" : a?.state === "reconnecting" ? "Đang nối lại" : "Chưa kết nối";
 
-function savedPage(): Page {
-  // Đường dẫn mở thẳng một mục: ?trang=groups (ưu tiên hơn mục mở lần trước).
-  const fromUrl = new URLSearchParams(location.search).get("trang");
-  if (fromUrl && fromUrl in TITLES) return fromUrl as Page;
-  const p = prefs.get("tab");
-  if (p === "zalo") return "hop";
-  return p && p in TITLES ? (p as Page) : "can";
+/** Mục cũ (trước khi gom menu) → mục mới + tab con. Giữ để đường dẫn ?trang=accounts và mục đã lưu vẫn mở đúng chỗ. */
+const LEGACY: Record<string, [Page, InboxMode | SettingsTab | null]> = {
+  can: ["hop", "can"],
+  zalo: ["hop", "can"],
+  chamsoc: ["hop", "care"],
+  accounts: ["settings", "zalo"],
+  models: ["settings", "models"],
+  org: ["settings", "org"],
+};
+function resolve(p: string | null): [Page, InboxMode | SettingsTab | null] | null {
+  if (!p) return null;
+  if (p in LEGACY) return LEGACY[p]!;
+  return p in TITLES ? [p as Page, null] : null;
 }
+function savedPage(): [Page, InboxMode | SettingsTab | null] {
+  // Đường dẫn mở thẳng một mục: ?trang=groups (ưu tiên hơn mục mở lần trước). Lần đầu mở app: Hôm nay.
+  return resolve(new URLSearchParams(location.search).get("trang")) ?? resolve(prefs.get("tab")) ?? ["homnay", null];
+}
+const INBOX_MODES: InboxMode[] = ["can", "care", "all"];
+const isSettingsTab = (v: unknown): v is SettingsTab => SETTINGS_TABS.some(([k]) => k === v);
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
-  const [page, setPage] = useState<Page>(savedPage);
+  const [initial] = useState(savedPage);
+  const [page, setPage] = useState<Page>(initial[0]);
+  const [inboxMode, setInboxMode] = useState<InboxMode>(() => {
+    const v = INBOX_MODES.includes(initial[1] as InboxMode) ? (initial[1] as InboxMode) : (prefs.get("inbox") as InboxMode);
+    return INBOX_MODES.includes(v) ? v : "can";
+  });
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(() => {
+    const v = isSettingsTab(initial[1]) ? initial[1] : new URLSearchParams(location.search).get("tab");
+    return isSettingsTab(v) ? v : "zalo";
+  });
+  /** Hội thoại cần mở sẵn khi vào Hộp thư (bấm một khách ở trang Chăm sóc, hoặc ?hoi=<id>). */
+  const [openThread, setOpenThread] = useState<string | null>(() => new URLSearchParams(location.search).get("hoi"));
   const [theme, setTheme] = useState<Theme>(() => (prefs.get("theme") as Theme) || "system");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountId, setAccountId] = useState<number | null>(null);
@@ -128,7 +151,7 @@ export function App() {
   }, [status?.user, mktOn, page]);
   // Mục MKT tắt (bản cho khách) mà trang lưu lại là trang MKT: về Cần xử lý.
   useEffect(() => {
-    if (status?.user && !mktOn && MKT_PAGES.includes(page)) setPage("can");
+    if (status?.user && !mktOn && MKT_PAGES.includes(page)) setPage("homnay");
   }, [status?.user, mktOn, page]);
   useEffect(() => {
     if (!status?.user) return;
@@ -147,6 +170,16 @@ export function App() {
     setPage(p);
     setMenuOpen(false);
   };
+  const goInbox = (m: InboxMode, threadId?: string) => {
+    prefs.set("inbox", m);
+    setInboxMode(m);
+    if (threadId) setOpenThread(threadId);
+    go("hop");
+  };
+  const goSettings = (t: SettingsTab) => {
+    setSettingsTab(t);
+    go("settings");
+  };
   const cycleTheme = () => {
     const next: Theme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
     prefs.set("theme", next);
@@ -157,7 +190,7 @@ export function App() {
     if (name === null) return;
     const r = await api<{ account: Account }>("/api/accounts", { body: { name } });
     chooseAccount(r.account.id);
-    go("accounts");
+    goSettings("zalo");
     // Tài khoản mới chưa có nick: bắt đầu quét QR luôn, không bắt người dùng tự tìm nút.
     await api("/api/zalo/login", { method: "POST" }).catch(() => undefined);
     await loadAccounts();
@@ -242,12 +275,11 @@ export function App() {
               </>
             )}
           </Popover>
-            {nav("can", Inbox, current?.needsAction)}
+          {nav("homnay", House, current?.needsAction)}
           {nav("hop", MessagesSquare, current?.unreadConversations)}
           {nav("schedules", CalendarClock, current?.activeSchedules)}
           {nav("groups", UsersRound, current?.trackedGroups)}
           {nav("profiles", Sparkles)}
-          {nav("accounts", Smartphone)}
           {mktOn && (
             <>
               <div className="nav-section">MKT</div>
@@ -256,8 +288,7 @@ export function App() {
               {nav("mkt-ketnoi", Plug, mktErrors ? `${mktErrors} lỗi` : undefined)}
             </>
           )}
-          <div className="nav-section">Cài đặt</div>
-          {nav("models", Cpu)}
+          <div className="nav-bottom">{nav("settings", Settings, current && current.state !== "connected" ? "Chưa nối" : undefined)}</div>
         </nav>
         <div className="sidebar-foot">
           <div className="user-row">
@@ -313,13 +344,27 @@ export function App() {
           <UpdateDialog status={update.status} restarting={update.restarting} onClose={() => setUpdateOpen(false)} onStatus={update.setStatus} />
         )}
         {(accountId || isMkt) && (
-          <main key={`${page === "can" || page === "hop" ? "inbox" : page}-${isMkt ? "mkt" : accountId}`} className="main-body">
-            {(page === "can" || page === "hop") && (
+          <main key={`${page}-${isMkt ? "mkt" : accountId}-${page === "hop" ? openThread : ""}`} className="main-body">
+            {page === "homnay" && (
+              <div className="page">
+                <TodayPage
+                  account={current}
+                  onOpenThread={(id, m) => goInbox(m, id)}
+                  onGo={(p) => (p === "settings" ? goSettings("zalo") : p === "hop" ? goInbox("can") : go(p))}
+                />
+              </div>
+            )}
+            {page === "hop" && (
               <InboxPage
                 account={current}
-                mode={page === "can" ? "can" : "all"}
-                onModeChange={(m) => go(m === "can" ? "can" : "hop")}
-                onGoAccounts={() => go("accounts")}
+                initialThread={openThread}
+                mode={inboxMode}
+                careDue={current?.careDue}
+                onModeChange={(m) => {
+                  prefs.set("inbox", m);
+                  setInboxMode(m);
+                }}
+                onGoAccounts={() => goSettings("zalo")}
               />
             )}
             {page === "schedules" && (
@@ -329,17 +374,24 @@ export function App() {
             )}
             {page === "groups" && (
               <div className="page">
-                <GroupsPage account={current} onGoAccounts={() => go("accounts")} />
+                <GroupsPage account={current} onGoAccounts={() => goSettings("zalo")} />
               </div>
             )}
             {page === "profiles" && accountId && (
               <div className="page">
-                <ProfilesPage accounts={accounts} accountId={accountId} onNeedEngine={() => go("models")} />
+                <ProfilesPage accounts={accounts} accountId={accountId} onNeedEngine={() => goSettings("models")} />
               </div>
             )}
-            {page === "accounts" && (
+            {page === "settings" && (
               <div className="page narrow">
-                <AccountsPage account={current} accounts={accounts} onAccountsChanged={loadAccounts} onAddAccount={addAccount} />
+                <SettingsPage
+                  tab={settingsTab}
+                  onTab={setSettingsTab}
+                  account={current}
+                  accounts={accounts}
+                  onAccountsChanged={loadAccounts}
+                  onAddAccount={addAccount}
+                />
               </div>
             )}
             {page === "mkt" && (
@@ -355,11 +407,6 @@ export function App() {
             {page === "mkt-ketnoi" && (
               <div className="page">
                 <ConnectionsPage />
-              </div>
-            )}
-            {page === "models" && (
-              <div className="page narrow">
-                <ModelsPage />
               </div>
             )}
           </main>

@@ -7,6 +7,32 @@ import { type Profile, resolveProfile } from "./profiles.js";
 
 export const OLD_MESSAGE_MS = 10 * 60_000;
 export const OWNER_TAKEOVER_MS = 30 * 60_000;
+/** Trong nhóm, chủ nhắn tay chỉ làm trợ lý im 5 phút (nhóm đông, chủ trả lời người này không có nghĩa là lo luôn người khác). */
+export const GROUP_OWNER_TAKEOVER_MS = 5 * 60_000;
+/** Người vừa được trợ lý trả lời trong nhóm: hỏi tiếp trong khoảng này không cần tag lại. */
+export const GROUP_FOLLOW_UP_MS = 10 * 60_000;
+/** Từ gọi mặc định trong nhóm, tính như tag trợ lý (chủ sửa được). */
+export const DEFAULT_CALL_WORDS = ["admin ơi", "ad ơi", "trợ lý ơi", "bot ơi", "BTC ơi"];
+
+/** Tin có chứa một từ gọi (không phân biệt dấu, hoa thường; phải đứng thành cụm riêng). */
+export function hasCallWord(text: string, words: string[]): boolean {
+  const t = ` ${fold(text.replace(/@\S+/g, " ")).replace(/[.,!?;:…"'()]+/g, " ").replace(/\s+/g, " ")} `;
+  return words.some((w) => {
+    const f = fold(w).replace(/[.,!?;:…"'()]+/g, " ").trim();
+    return f.length >= 2 && t.includes(` ${f} `);
+  });
+}
+
+/** Nhóm tự trả lời: tối đa số tin trợ lý gửi vào một nhóm trong 1 giờ khi không ai tag. */
+export const GROUP_AUTO_PER_HOUR = 4;
+
+/** Tin trong nhóm trông như một câu hỏi (lọc rẻ trước khi gọi AI; AI vẫn tự quyết im lặng). */
+export function looksLikeQuestion(text: string): boolean {
+  const t = fold(text.replace(/@\S+/g, " "));
+  if (t.length < 6) return false;
+  if (text.includes("?")) return true;
+  return /(^| )(bao nhieu|the nao|nhu nao|lam sao|lam the nao|o dau|khi nao|bao gio|luc nao|duoc khong|dc khong|co khong|phai khong|cho hoi|cho em hoi|cho minh hoi|cho chi hoi|cho anh hoi|xin hoi|ai biet|hoi chut|hoc phi|gia bao|xin link|link dang ky|dang ky o|lich hoc|tai sao|vi sao|sao vay|sao a)( |$)/.test(t);
+}
 export const HANDOFF_MS = 24 * 3_600_000;
 
 /** Bỏ dấu tiếng Việt, chữ thường, gộp khoảng trắng — để khớp từ khoá có hoặc không dấu. */
@@ -66,6 +92,8 @@ export interface PolicyInput {
     assigned_profile_id: number | null;
     assigned_off: number;
     handoff_until: number;
+    /** Nhóm bật tự trả lời câu hỏi (không cần tag). */
+    group_auto?: number;
   };
   profiles: Profile[];
   /** Nhãn Zalo; null = không đọc được → coi như không nhãn. */
@@ -76,11 +104,16 @@ export interface PolicyInput {
   lastOwnerAt: number;
   now: number;
   extraHandoffTerms?: string[];
+  /** Nhóm: từ gọi tính như tag trợ lý (VD "admin ơi"). */
+  callWords?: string[];
+  /** Nhóm: lần cuối trợ lý trả lời chính người đang nhắn (ms, 0 = chưa) — hỏi tiếp không cần tag lại. */
+  lastAnsweredSenderAt?: number;
 }
 
 export type Decision =
   | { act: "skip"; reason: string }
-  | { act: "reply"; profile: Profile }
+  /** ambient = trong nhóm không ai gọi trợ lý, nhưng nhóm bật tự trả lời và tin trông như câu hỏi. */
+  | { act: "reply"; profile: Profile; ambient?: boolean }
   | { act: "handoff"; profile: Profile; reason: string }
   | { act: "resume" }
   | { act: "opt_out" }
@@ -102,11 +135,26 @@ export function decide(i: PolicyInput): Decision {
   if (isGroup && text && hasLine(text, GROUP_STOP)) return { act: "group_stop" };
   if (text && isExactly(text, RESUME)) return conv.handoff_until > now ? { act: "resume" } : { act: "skip", reason: "Không có gì để mở lại" };
   if (conv.handoff_until > now) return { act: "skip", reason: "Đang chờ người thật" };
-  if (i.lastOwnerAt && now - i.lastOwnerAt < OWNER_TAKEOVER_MS) return { act: "skip", reason: "Chủ vừa nhắn tay trong hội thoại này" };
+  const takeover = isGroup ? GROUP_OWNER_TAKEOVER_MS : OWNER_TAKEOVER_MS;
+  if (i.lastOwnerAt && now - i.lastOwnerAt < takeover) return { act: "skip", reason: "Chủ vừa nhắn tay trong hội thoại này" };
 
+  let ambient = false;
   if (isGroup) {
-    const addressed = (i.ownId && event.mentions.includes(i.ownId)) || (i.ownId && event.quoteOwnerId === i.ownId);
-    if (!addressed) return { act: "skip", reason: "Trong nhóm không ai gọi trợ lý" };
+    const tagged = (i.ownId && event.mentions.includes(i.ownId)) || (i.ownId && event.quoteOwnerId === i.ownId);
+    const toSomeoneElse = event.mentions.length > 0 || Boolean(event.quoteOwnerId);
+    // Gọi bằng từ quen miệng ("admin ơi"), hoặc người vừa được trợ lý trả lời hỏi tiếp — miễn không đang gọi / trả lời người khác.
+    const called = !toSomeoneElse && Boolean(text) && hasCallWord(text, i.callWords ?? []);
+    const followUp = !toSomeoneElse && Boolean(i.lastAnsweredSenderAt) && now - (i.lastAnsweredSenderAt ?? 0) < GROUP_FOLLOW_UP_MS;
+    const addressed = tagged || called || followUp;
+    if (!addressed) {
+      // Nhóm bật tự trả lời: chỉ câu hỏi chữ, không đang gọi / trả lời người khác.
+      if (!conv.group_auto || !event.isText || !text || toSomeoneElse || !looksLikeQuestion(text)) {
+        return { act: "skip", reason: conv.group_auto ? "Tin trong nhóm không phải câu hỏi chung" : "Trong nhóm không ai gọi trợ lý" };
+      }
+      // Chuyện tiền, khiếu nại… mà không gọi trợ lý thì để người thật thấy, trợ lý không chen vào.
+      if (handoffTopic(text, i.extraHandoffTerms)) return { act: "skip", reason: "Chủ đề cần người thật, không ai gọi trợ lý" };
+      ambient = true;
+    }
   }
   if (!isGroup && text && isExactly(text, OPT_OUT)) return { act: "opt_out" };
 
@@ -115,7 +163,7 @@ export function decide(i: PolicyInput): Decision {
   }
   const topic = handoffTopic(text, i.extraHandoffTerms);
   if (topic) return { act: "handoff", profile, reason: topic };
-  return { act: "reply", profile };
+  return ambient ? { act: "reply", profile, ambient: true } : { act: "reply", profile };
 }
 
 // ---------- Khung chung nạp vào AI (Phần B) ----------
@@ -131,6 +179,8 @@ export function frameSystemPrompt(v: {
   sendMode: "draft" | "auto";
   /** Cách gọi người đang nhắn theo giới tính hồ sơ Zalo (hoặc chủ sửa tay); không rõ thì "bạn". */
   salutation?: "anh" | "chị" | "bạn";
+  /** Trong nhóm, không ai gọi trợ lý — nhóm bật tự trả lời câu hỏi. */
+  ambient?: boolean;
 }): string {
   const s = v.salutation ?? "bạn";
   const who = v.personName || "người đang nhắn";
@@ -163,6 +213,17 @@ export function frameSystemPrompt(v: {
     "",
     "# Khi nào im lặng",
     `Trả lời đúng một dòng ${MARK_SILENT} khi tin không cần trả lời ("ok", "cảm ơn", sticker, chào đã được chào lại) hoặc bạn đã trả lời đủ.`,
+    "",
+    ...(v.ambient
+      ? [
+          "",
+          "# Tin này KHÔNG gọi tên bạn",
+          `Nhóm bật chế độ trợ lý tự trả lời câu hỏi. Chỉ trả lời khi tin mới nhất là câu hỏi chung (lịch, link, cách đăng ký, nội dung khoá…) mà <tai_lieu> trả lời được và chưa ai trong nhóm trả lời.`,
+          `Trả lời đúng một dòng ${MARK_SILENT} khi: thành viên đang trò chuyện với nhau, hỏi ý kiến / kinh nghiệm của người khác, hỏi riêng ${v.ownerName} hay một người cụ thể, đã có người trả lời, hoặc bạn không chắc. Im lặng là lựa chọn an toàn.`,
+          `Không dùng dấu ${MARK_HANDOFF} ở chế độ này; cần ${v.ownerName} thì im lặng.`,
+          "Trả lời ngắn (1–3 câu), mở đầu bằng tên người hỏi.",
+        ]
+      : []),
     "",
     "# Cách viết trên Zalo",
     "- Ngắn, tự nhiên như người nhắn tin: 1–4 câu, trừ khi khách hỏi chi tiết.",

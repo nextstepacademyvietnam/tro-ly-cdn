@@ -145,7 +145,45 @@ env("CDN_DATA_DIR") = dir & "\data"
 env("PORT") = "$Port"
 env("npm_config_prefix") = dir & "\node"
 sh.CurrentDirectory = dir
+' Bật lại thì bỏ dấu "đã tắt" để tác vụ canh gác tiếp tục giữ app chạy.
+Set fs = CreateObject("Scripting.FileSystemObject")
+If fs.FileExists(dir & "\data\da-tat.txt") Then fs.DeleteFile dir & "\data\da-tat.txt", True
 sh.Run "cmd /c node """ & dir & "\launcher.mjs"" >> """ & dir & "\data\logs\tro-ly-cdn.log"" 2>&1", 0, False
+"@
+  # Canh gác: Task Scheduler chạy 5 phút một lần. App không trả lời 3 lần liền (cách nhau 1 phút, tránh lúc đang
+  # cập nhật đổi bản) mà bạn không tự tắt → tắt tiến trình treo (nếu có) rồi bật lại, ghi vào nhật ký.
+  $guard = @"
+' Canh gác Trợ lý CDN: app chết hoặc treo thì tự bật lại (bộ cài tạo file này, Task Scheduler chạy 5 phút một lần).
+Set sh = CreateObject("WScript.Shell")
+Set fs = CreateObject("Scripting.FileSystemObject")
+dir = fs.GetParentFolderName(WScript.ScriptFullName)
+Function Running()
+  On Error Resume Next
+  Set h = CreateObject("MSXML2.ServerXMLHTTP")
+  h.setTimeouts 3000, 3000, 5000, 5000
+  h.Open "GET", "http://127.0.0.1:$Port/api/status", False
+  h.Send
+  Running = (Err.Number = 0 And h.Status = 200)
+End Function
+If fs.FileExists(dir & "\data\da-tat.txt") Then WScript.Quit
+For i = 1 To 3
+  If Running() Then WScript.Quit
+  If i < 3 Then WScript.Sleep 60000
+  If fs.FileExists(dir & "\data\da-tat.txt") Then WScript.Quit
+Next
+Set wmi = GetObject("winmgmts:\\.\root\cimv2")
+For Each p In wmi.ExecQuery("Select * From Win32_Process Where Name = 'node.exe'")
+  If Not IsNull(p.CommandLine) Then
+    If InStr(1, p.CommandLine, dir, 1) > 0 Then p.Terminate
+  End If
+Next
+On Error Resume Next
+Set lg = fs.OpenTextFile(dir & "\data\logs\tro-ly-cdn.log", 8, True)
+lg.WriteLine "[canh-gac] " & Now & " App khong tra loi 3 phut, bat lai"
+lg.Close
+On Error GoTo 0
+WScript.Sleep 2000
+sh.Run "wscript """ & dir & "\chay-nen.vbs""", 0, False
 "@
   $open = @"
 ' Mở Trợ lý CDN: chưa chạy thì bật, rồi mở trình duyệt (bộ cài tạo file này).
@@ -172,7 +210,8 @@ sh.Run "http://localhost:$Port"
   $stop = @"
 @echo off
 chcp 65001 >nul
-rem Tắt Trợ lý CDN (bộ cài tạo file này).
+rem Tắt Trợ lý CDN (bộ cài tạo file này). Ghi dấu "đã tắt" để tác vụ canh gác không tự bật lại.
+echo %date% %time%> "%~dp0data\da-tat.txt"
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { `$_.CommandLine -and `$_.CommandLine.Contains('$dirQuoted') } | ForEach-Object { Stop-Process -Id `$_.ProcessId -Force }"
 echo Đã tắt Trợ lý CDN.
 ping -n 3 127.0.0.1 >nul
@@ -180,6 +219,7 @@ ping -n 3 127.0.0.1 >nul
   # VBScript đọc được đường dẫn có dấu tiếng Việt khi lưu UTF-16 (Unicode).
   [IO.File]::WriteAllText((Join-Path $Dir "chay-nen.vbs"), $run, [Text.Encoding]::Unicode)
   [IO.File]::WriteAllText((Join-Path $Dir "mo-tro-ly-cdn.vbs"), $open, [Text.Encoding]::Unicode)
+  [IO.File]::WriteAllText((Join-Path $Dir "canh-gac.vbs"), $guard, [Text.Encoding]::Unicode)
   [IO.File]::WriteAllText((Join-Path $Dir "tat-tro-ly-cdn.cmd"), ($stop -replace "`r?`n", "`r`n"), (New-Object Text.UTF8Encoding $false))
 
   $reset = @"
@@ -200,6 +240,7 @@ chcp 65001 >nul
 rem Gỡ Trợ lý CDN (bộ cài tạo file này).
 echo Gỡ Trợ lý CDN khỏi máy này.
 call "%~dp0tat-tro-ly-cdn.cmd" >nul
+schtasks /Delete /TN "Tro ly CDN - tu bat lai" /F >nul 2>nul
 del /q "%USERPROFILE%\Desktop\Trợ lý CDN.lnk" 2>nul
 del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Trợ lý CDN.lnk" 2>nul
 del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tắt Trợ lý CDN.lnk" 2>nul
@@ -211,7 +252,7 @@ cd /d "%TEMP%"
 if /i "%XOA%"=="XOA" (echo Đã gỡ và xoá dữ liệu.) else (echo Đã gỡ. Dữ liệu vẫn giữ ở %D%data)
 pause
 rem File này tự xoá chính nó: "(goto)" thoát khỏi file trước khi xoá để cmd không báo lỗi.
-if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmdir /s /q "%D%node" & rmdir /s /q "%D%versions" & del /q "%D%launcher.mjs" "%D%current.json" "%D%chay-nen.vbs" "%D%mo-tro-ly-cdn.vbs" "%D%tat-tro-ly-cdn.cmd" "%D%Dat-lai-mat-khau.cmd" "%D%go-cai-dat.cmd")
+if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmdir /s /q "%D%node" & rmdir /s /q "%D%versions" & del /q "%D%launcher.mjs" "%D%current.json" "%D%chay-nen.vbs" "%D%mo-tro-ly-cdn.vbs" "%D%tat-tro-ly-cdn.cmd" "%D%canh-gac.vbs" "%D%Dat-lai-mat-khau.cmd" "%D%go-cai-dat.cmd")
 "@
   [IO.File]::WriteAllText((Join-Path $Dir "go-cai-dat.cmd"), ($uninstall -replace "`r?`n", "`r`n"), (New-Object Text.UTF8Encoding $false))
 
@@ -254,6 +295,17 @@ if /i "%XOA%"=="XOA" ((goto) 2>nul & rmdir /s /q "%D%") else ((goto) 2>nul & rmd
     New-Shortcut (Join-Path $programs "Đặt lại mật khẩu Trợ lý CDN.lnk") (Join-Path $Dir "Dat-lai-mat-khau.cmd") "" "Quên mật khẩu đăng nhập Trợ lý CDN"
     New-Shortcut (Join-Path ([Environment]::GetFolderPath("Startup")) "Trợ lý CDN.lnk") $wscript "`"$Dir\chay-nen.vbs`"" "Bật Trợ lý CDN khi mở máy"
     Ok "Đã tạo biểu tượng `"Trợ lý CDN`" trên Màn hình nền và menu Start; app tự chạy khi mở máy."
+    # Tự bật lại khi app chết hoặc treo: tác vụ của riêng người dùng này (không cần quyền quản trị), chạy cả khi
+    # máy dùng pin. Không tạo được (máy chặn Task Scheduler) thì app vẫn chạy, chỉ thiếu phần tự bật lại.
+    try {
+      $act = New-ScheduledTaskAction -Execute $wscript -Argument "`"$Dir\canh-gac.vbs`""
+      $trg = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5)
+      $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+      Register-ScheduledTask -TaskName "Tro ly CDN - tu bat lai" -Action $act -Trigger $trg -Settings $set -Description "Tro ly CDN: app dung thi tu bat lai" -Force -ErrorAction Stop | Out-Null
+      Ok "App tự bật lại nếu bị tắt ngang (kiểm 5 phút một lần)."
+    } catch {
+      Note "Chưa tạo được tác vụ tự bật lại: $($_.Exception.Message)"
+    }
   } else {
     Note "Không tạo biểu tượng (CDN_NO_SERVICE)."
   }

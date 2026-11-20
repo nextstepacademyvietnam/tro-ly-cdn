@@ -19,6 +19,16 @@ export interface Profile {
   /** Số nhỏ hơn = ưu tiên cao hơn khi hội thoại mang nhiều nhãn. */
   priority: number;
   updatedAt: number;
+  /** Chăm sóc khách chủ động (chỉ chat riêng có nhãn tính cách này). */
+  care: CareSettings;
+}
+
+export interface CareSettings {
+  enabled: boolean;
+  /** Cách chăm sóc riêng của tính cách (giai đoạn nào, bao lâu một lần, nói gì). Đưa vào lời dặn AI. */
+  rules: string;
+  /** Tối đa số tin chăm sóc soạn mỗi ngày cho tính cách này. */
+  maxPerDay: number;
 }
 
 export interface ProfileInput {
@@ -44,6 +54,9 @@ interface Row {
   applies: Applies;
   priority: number;
   updated_at: number;
+  care_enabled?: number;
+  care_rules?: string;
+  care_max_per_day?: number;
 }
 
 const toProfile = (r: Row): Profile => ({
@@ -56,6 +69,7 @@ const toProfile = (r: Row): Profile => ({
   applies: r.applies,
   priority: r.priority,
   updatedAt: r.updated_at,
+  care: { enabled: Boolean(r.care_enabled), rules: r.care_rules ?? "", maxPerDay: r.care_max_per_day ?? 20 },
 });
 
 export class ProfileStore {
@@ -63,6 +77,21 @@ export class ProfileStore {
 
   list(accountId: number): Profile[] {
     return (this.db.prepare("SELECT * FROM profiles WHERE account_id = ? ORDER BY priority, id").all(accountId) as unknown as Row[]).map(toProfile);
+  }
+
+  /** Lưu cài đặt chăm sóc chủ động của tính cách. */
+  setCare(id: number, input: Partial<CareSettings>): CareSettings {
+    const p = this.get(id);
+    if (!p) throw new ProfileError("Không có tính cách này");
+    const care: CareSettings = {
+      enabled: input.enabled === undefined ? p.care.enabled : Boolean(input.enabled),
+      rules: input.rules === undefined ? p.care.rules : String(input.rules).trim().slice(0, 4000),
+      maxPerDay: input.maxPerDay === undefined ? p.care.maxPerDay : Math.min(200, Math.max(1, Math.round(Number(input.maxPerDay)) || 20)),
+    };
+    this.db
+      .prepare("UPDATE profiles SET care_enabled = ?, care_rules = ?, care_max_per_day = ?, updated_at = ? WHERE id = ?")
+      .run(care.enabled ? 1 : 0, care.rules, care.maxPerDay, Date.now(), id);
+    return care;
   }
 
   get(id: number): Profile | undefined {
